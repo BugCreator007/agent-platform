@@ -20,13 +20,17 @@ const NODE_TYPES: Record<string, { label: string; desc: string; color: string; b
   condition: { label: '条件分支', desc: '按表达式选择后续路径', color: '#EB6834', bg: '#FCEDE5', icon: 'workflow' },
   approval: { label: '人工审批', desc: '等待人工确认后继续', color: '#6250D6', bg: '#EFECFB', icon: 'users' },
   knowledge: { label: '知识检索', desc: '从知识库召回相关片段', color: '#1BAF7A', bg: '#E4F4EE', icon: 'knowledge' },
-  notify: { label: '消息通知', desc: '企微、短信或邮件通知', color: '#8A5A00', bg: '#FBF1DD', icon: 'send' },
+  notify: { label: '消息通知', desc: '企微或 Webhook 真实发送', color: '#8A5A00', bg: '#FBF1DD', icon: 'send' },
+  timer: { label: '定时器', desc: '等待指定秒数后继续', color: '#2A78D6', bg: '#EAF0FB', icon: 'clock' },
+  subflow: { label: '子流程', desc: '调用另一个流程并等待结果', color: '#6250D6', bg: '#EFECFB', icon: 'workflow' },
+  join: { label: '汇聚', desc: '等待并行分支全部到达', color: '#1BAF7A', bg: '#E4F4EE', icon: 'git' },
   end: { label: '结束', desc: '输出结果并结束流程', color: '#7E8781', bg: '#EFF1E9', icon: 'check-circle' },
 }
 
 const TYPE_ALIASES: Record<string, string> = {
   START: 'trigger', TRIGGER: 'trigger', MODEL: 'model', TOOL: 'tool', CONDITION: 'condition',
-  APPROVAL: 'approval', KNOWLEDGE: 'knowledge', NOTIFY: 'notify', END: 'end',
+  APPROVAL: 'approval', KNOWLEDGE: 'knowledge', NOTIFY: 'notify', TIMER: 'timer',
+  SUBFLOW: 'subflow', JOIN: 'join', END: 'end',
 }
 
 const normalizeType = (type: string) => TYPE_ALIASES[type.toUpperCase()] ?? type.toLowerCase()
@@ -40,7 +44,7 @@ const TEMPLATES: Record<string, { name: string; desc: string; trigger: string; n
       { key: 't1', type: 'trigger', title: '工单创建', meta: '售后工单 · 新建事件' },
       { key: 't2', type: 'knowledge', title: '检索售后政策', meta: 'kb-refund · Top 4' },
       { key: 't3', type: 'tool', title: '查询订单', meta: 'order.query' },
-      { key: 't4', type: 'condition', title: '金额是否超过 500', meta: 'amount > 500' },
+      { key: 't4', type: 'condition', title: '金额是否超过 500', meta: 'amount > 500', config: { expression: 'amount > 500', trueNext: 't5', falseNext: 't6' } },
       { key: 't5', type: 'approval', title: '人工审批', meta: '退款审核组' },
       { key: 't6', type: 'notify', title: '回复用户', meta: '企微 + 工单' },
     ],
@@ -114,6 +118,7 @@ export function WorkflowPage() {
     return (
       <WorkflowEditor
         workflow={editing}
+        workflows={workflows.data ?? []}
         onClose={() => setEditing(null)}
         onChanged={(w) => {
           setEditing(w)
@@ -125,7 +130,7 @@ export function WorkflowPage() {
 
   return (
     <>
-      <PageHead title="流程编排" sub="可视化编排多步骤业务链路，支持条件分支、人工审批、测试运行与版本发布。">
+      <PageHead title="流程编排" sub="可视化编排多步骤业务链路，支持并行汇聚、条件路由、子流程、定时器、补偿事务、真实通知与人工审批。">
         <Button onClick={() => setCreateOpen(true)}><Icon name="list" />从模板创建</Button>
         <Button kind="primary" onClick={() => setCreateOpen(true)}><Icon name="plus" />新建流程</Button>
       </PageHead>
@@ -177,7 +182,7 @@ export function WorkflowPage() {
         <Panel title="运行实例" sub="执行状态、节点进度与人工审批" tools={<Button kind="ghost" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-instances'] })}>刷新</Button>}>
           {(instances.data ?? []).slice(0, 6).map((i) => (
             <div className="alert-item" key={i.id} onClick={() => setInstanceId(i.id)} style={{ cursor: 'pointer' }}>
-              <div className={`alert-icon ${i.status === 'FAILED' ? 'critical' : i.status === 'WAITING_APPROVAL' ? 'warning' : 'info'}`}><Icon name={i.status === 'FAILED' ? 'x-circle' : i.status === 'WAITING_APPROVAL' ? 'clock' : 'check-circle'} /></div>
+              <div className={`alert-icon ${i.status === 'FAILED' ? 'critical' : i.status.startsWith('WAITING_') ? 'warning' : 'info'}`}><Icon name={i.status === 'FAILED' ? 'x-circle' : i.status.startsWith('WAITING_') ? 'clock' : 'check-circle'} /></div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="al-title mono" style={{ fontSize: 11.5 }}>{i.id}</div>
                 <div className="al-meta">{i.workflowName} · {i.currentNode ?? '—'}</div>
@@ -224,7 +229,7 @@ export function WorkflowPage() {
                 <div className="panel-body" style={{ paddingTop: 6 }}>
                   {instanceDetail.data.nodeRuns.map((n) => (
                     <div className="trace-row" key={n.id}>
-                      <span className="step-dot" style={{ background: n.status === 'FAILED' ? 'var(--danger-wash)' : n.status === 'WAITING_APPROVAL' ? 'var(--warn-wash)' : 'var(--pine-wash)', color: n.status === 'FAILED' ? 'var(--danger-text)' : n.status === 'WAITING_APPROVAL' ? 'var(--warn-text)' : 'var(--pine-deep)' }}>{n.status === 'FAILED' ? <Icon name="x" /> : <Icon name="check" />}</span>
+                      <span className="step-dot" style={{ background: n.status === 'FAILED' ? 'var(--danger-wash)' : n.status.startsWith('WAITING_') ? 'var(--warn-wash)' : 'var(--pine-wash)', color: n.status === 'FAILED' ? 'var(--danger-text)' : n.status.startsWith('WAITING_') ? 'var(--warn-text)' : 'var(--pine-deep)' }}>{n.status === 'FAILED' ? <Icon name="x" /> : n.status.startsWith('WAITING_') ? <Icon name="clock" /> : <Icon name="check" />}</span>
                       <div style={{ flex: 1 }}><div className="row"><b style={{ fontSize: 12.5 }}>{n.title}</b><span className="badge neutral" style={{ height: 18 }}>{n.nodeType}</span><span className="spacer" /><StatusBadge status={n.status} /></div><div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{n.outputJson ?? n.error ?? '等待执行'}</div></div>
                     </div>
                   ))}
@@ -258,10 +263,12 @@ export function WorkflowPage() {
 
 function WorkflowEditor({
   workflow,
+  workflows,
   onClose,
   onChanged,
 }: {
   workflow: Workflow
+  workflows: Workflow[]
   onClose: () => void
   onChanged: (w: Workflow) => void
 }) {
@@ -282,6 +289,29 @@ function WorkflowEditor({
   }, [workflow.id])
 
   const selected = nodes.find((n) => n.key === selectedKey) ?? null
+  const edgeList = useMemo(() => {
+    const result: Array<{ key: string; from: string; to: string; label?: string }> = []
+    const byKey = new Map(nodes.map((n) => [n.key, n]))
+    nodes.forEach((n, i) => {
+      const config = n.config ?? {}
+      if (n.type === 'condition') {
+        const trueNext = String(config.trueNext ?? '')
+        const falseNext = String(config.falseNext ?? '')
+        if (trueNext && byKey.has(trueNext)) result.push({ key: `${n.key}->${trueNext}:true`, from: n.key, to: trueNext, label: 'true' })
+        if (falseNext && byKey.has(falseNext)) result.push({ key: `${n.key}->${falseNext}:false`, from: n.key, to: falseNext, label: 'false' })
+        if (!trueNext && !falseNext && nodes[i + 1]) result.push({ key: `${n.key}->${nodes[i + 1].key}`, from: n.key, to: nodes[i + 1].key })
+        return
+      }
+      const raw = config.next
+      const targets = Array.isArray(raw) ? raw.map(String).filter(Boolean) : raw ? [String(raw)] : []
+      if (targets.length) {
+        targets.forEach((target) => { if (byKey.has(target)) result.push({ key: `${n.key}->${target}`, from: n.key, to: target }) })
+      } else if (n.type !== 'end' && nodes[i + 1]) {
+        result.push({ key: `${n.key}->${nodes[i + 1].key}`, from: n.key, to: nodes[i + 1].key })
+      }
+    })
+    return result
+  }, [nodes])
 
   const onMouseDown = (e: React.MouseEvent, node: WorkflowNode & { x: number; y: number }) => {
     e.stopPropagation()
@@ -322,6 +352,11 @@ function WorkflowEditor({
     setNodes((prev) => prev.map((n) => n.key === selected.key ? { ...n, ...patch } : n))
   }
 
+  const updateConfig = (patch: Record<string, unknown>) => {
+    if (!selected) return
+    updateSelected({ config: { ...(selected.config ?? {}), ...patch } })
+  }
+
   const save = () => {
     const next = { ...workflow, nodes: nodes.map(({ x, y, ...n }) => n) }
     onChanged(next)
@@ -332,16 +367,40 @@ function WorkflowEditor({
 
   const testRun = async () => {
     setRunning(true)
-    setLog(['启动测试运行…', '触发器校验通过', '加载流程版本 ' + version])
+    setLog(['启动真实测试实例…'])
     try {
-      await api.post(`/workflows/${workflow.id}/test`)
-      const steps = nodes.map((n, i) => `节点 ${i + 1}/${nodes.length} · ${n.title} 执行完成`)
-      steps.forEach((s, i) => window.setTimeout(() => setLog((prev) => [...prev, s]), (i + 1) * 280))
-      window.setTimeout(() => {
-        setLog((prev) => [...prev, '测试通过 · 全链路耗时 2.18s'])
-        setRunning(false)
-        toast('测试运行通过')
-      }, (steps.length + 1) * 280 + 200)
+      const started = await api.post<{ instanceId: string; workflow: string }>(`/workflows/${workflow.id}/test`)
+      setLog([`测试实例 ${started.instanceId} 已启动，等待执行…`])
+      let attempts = 0
+      const poll = async () => {
+        attempts += 1
+        try {
+          const detail = await api.get<{ instance: WorkflowInstance; nodeRuns: WorkflowNodeRun[] }>(`/workflow-instances/${started.instanceId}`)
+          const status = detail.instance.status
+          const lines = detail.nodeRuns.map((n) => `节点 ${n.title} · ${n.status}${n.error ? ` · ${n.error}` : ''}`)
+          setLog([`测试实例 ${started.instanceId} · ${status}`, ...lines])
+          if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(status)) {
+            setRunning(false)
+            toast(status === 'SUCCEEDED' ? '测试运行通过' : `测试运行${status === 'FAILED' ? '失败' : '已取消'}`,
+              status === 'SUCCEEDED' ? undefined : 'err')
+            return
+          }
+          if (status.startsWith('WAITING_')) {
+            setRunning(false)
+            toast(`测试运行进入等待态：${status}`, 'err')
+            return
+          }
+          if (attempts < 100) window.setTimeout(poll, 800)
+          else {
+            setRunning(false)
+            setLog((prev) => [...prev, '测试轮询超时，实例仍在运行，可到运行实例中查看'])
+          }
+        } catch (e) {
+          setRunning(false)
+          toast((e as Error).message, 'err')
+        }
+      }
+      poll()
     } catch (e) {
       setLog((prev) => [...prev, `测试失败：${(e as Error).message}`])
       setRunning(false)
@@ -393,9 +452,17 @@ function WorkflowEditor({
           </div>
           <div className="flow-world" style={{ transform: `scale(${zoom})`, transformOrigin: '0 0', position: 'relative', minHeight: 600, minWidth: 900 }}>
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-              {nodes.slice(0, -1).map((n, i) => {
-                const next = nodes[i + 1]
-                return <path key={n.key} d={`M ${n.x + 170} ${n.y + 38} C ${n.x + 200} ${n.y + 38}, ${next.x - 30} ${next.y + 38}, ${next.x} ${next.y + 38}`} fill="none" stroke="#B8C4BB" strokeWidth="1.6" strokeDasharray="4 4" />
+              {edgeList.map((edge) => {
+                const from = nodes.find((n) => n.key === edge.from)
+                const to = nodes.find((n) => n.key === edge.to)
+                if (!from || !to) return null
+                const stroke = edge.label === 'false' ? '#D99A2B' : edge.label === 'true' ? '#1BAF7A' : '#B8C4BB'
+                return (
+                  <g key={edge.key}>
+                    <path d={`M ${from.x + 196} ${from.y + 38} C ${from.x + 230} ${from.y + 38}, ${to.x - 30} ${to.y + 38}, ${to.x} ${to.y + 38}`} fill="none" stroke={stroke} strokeWidth="1.6" strokeDasharray={edge.label ? undefined : '4 4'} />
+                    {edge.label && <text className="edge-label" x={(from.x + 196 + to.x) / 2} y={(from.y + to.y) / 2 + 29} fill={stroke} textAnchor="middle">{edge.label}</text>}
+                  </g>
+                )
               })}
             </svg>
             {nodes.map((n) => {
@@ -434,7 +501,58 @@ function WorkflowEditor({
               <div className="fi-body">
                 <div className="field"><label>节点名称</label><input className="input" value={selected.title} onChange={(e) => updateSelected({ title: e.target.value })} /></div>
                 <div className="field"><label>节点类型</label><select className="select" value={selected.type} onChange={(e) => updateSelected({ type: e.target.value })}>{Object.entries(NODE_TYPES).map(([k, t]) => <option key={k} value={k}>{t.label}</option>)}</select></div>
-                <div className="field"><label>配置说明</label><textarea className="input" rows={4} value={selected.meta} onChange={(e) => updateSelected({ meta: e.target.value })} /></div>
+                <div className="field"><label>配置说明</label><textarea className="input" rows={3} value={selected.meta} onChange={(e) => updateSelected({ meta: e.target.value })} /></div>
+
+                {selected.type === 'condition' && (
+                  <>
+                    <div className="field"><label>条件表达式</label><input className="input" value={String(selected.config?.expression ?? selected.meta ?? '')} onChange={(e) => updateConfig({ expression: e.target.value })} placeholder="amount > 500" /><div className="hint">支持 SpEL，例如 amount &gt; 500、risk_score &lt; 80、can_refund == true</div></div>
+                    <div className="field-grid">
+                      <div className="field"><label>True 分支</label><select className="select" value={String(selected.config?.trueNext ?? '')} onChange={(e) => updateConfig({ trueNext: e.target.value })}><option value="">不继续</option>{nodes.filter((n) => n.key !== selected.key).map((n) => <option key={n.key} value={n.key}>{n.title}</option>)}</select></div>
+                      <div className="field"><label>False 分支</label><select className="select" value={String(selected.config?.falseNext ?? '')} onChange={(e) => updateConfig({ falseNext: e.target.value })}><option value="">不继续</option>{nodes.filter((n) => n.key !== selected.key).map((n) => <option key={n.key} value={n.key}>{n.title}</option>)}</select></div>
+                    </div>
+                  </>
+                )}
+
+                {selected.type === 'timer' && (
+                  <div className="field"><label>等待秒数</label><input className="input" type="number" min={1} value={Number(selected.config?.delaySeconds ?? 5)} onChange={(e) => updateConfig({ delaySeconds: Number(e.target.value) })} /><div className="hint">由调度器持久化恢复，服务重启后仍会继续。</div></div>
+                )}
+
+                {selected.type === 'subflow' && (
+                  <div className="field"><label>子流程</label><select className="select" value={String(selected.config?.workflowId ?? '')} onChange={(e) => updateConfig({ workflowId: e.target.value })}><option value="">请选择子流程</option>{workflows.filter((w) => w.id !== workflow.id).map((w) => <option key={w.id} value={w.id}>{w.name} · {w.version}</option>)}</select><div className="hint">父流程会等待子流程完成；子流程失败时父流程失败并执行补偿。</div></div>
+                )}
+
+                {selected.type === 'notify' && (
+                  <>
+                    <div className="field"><label>发送通道</label><select className="select" value={String(selected.config?.channel ?? 'wecom')} onChange={(e) => updateConfig({ channel: e.target.value })}><option value="wecom">企业微信</option><option value="webhook">HTTP Webhook</option></select></div>
+                    {String(selected.config?.channel ?? 'wecom') === 'webhook' && <div className="field"><label>Webhook URL</label><input className="input" value={String(selected.config?.target ?? '')} onChange={(e) => updateConfig({ target: e.target.value })} placeholder="https://hooks.example.com/..." /></div>}
+                    <div className="field"><label>通知内容</label><textarea className="input" rows={3} value={String(selected.config?.message ?? '')} onChange={(e) => updateConfig({ message: e.target.value })} placeholder={'流程 ${workflow} 执行到节点 ${node}，实例 ${instanceId}'} /><div className="hint">{'支持 ${workflow}、${instanceId}、${input} 以及节点输出变量。'}</div></div>
+                  </>
+                )}
+
+                {(selected.type === 'tool' || selected.type === 'knowledge') && (
+                  <div className="field"><label>{selected.type === 'tool' ? '工具 Key' : '数据集 ID'}</label><input className="input" value={String(selected.config?.tool ?? selected.config?.datasetId ?? '')} onChange={(e) => updateConfig(selected.type === 'tool' ? { tool: e.target.value } : { datasetId: e.target.value })} placeholder={selected.type === 'tool' ? 'order.query' : 'kb-refund'} /></div>
+                )}
+
+                {!['condition', 'end'].includes(selected.type) && (
+                  <div className="field">
+                    <label>下一步节点（多选即并行）</label>
+                    <select
+                      className="select"
+                      multiple
+                      style={{ height: 92 }}
+                      value={Array.isArray(selected.config?.next) ? (selected.config!.next as string[]).map(String) : selected.config?.next ? [String(selected.config.next)] : []}
+                      onChange={(e) => updateConfig({ next: Array.from(e.target.selectedOptions).map((o) => o.value) })}
+                    >
+                      {nodes.filter((n) => n.key !== selected.key).map((n) => <option key={n.key} value={n.key}>{n.title}</option>)}
+                    </select>
+                    <div className="hint">不配置时按画布顺序连接；配置多个目标会并行执行，汇聚节点会等待所有到达。</div>
+                  </div>
+                )}
+
+                {['model', 'tool', 'knowledge', 'notify', 'subflow'].includes(selected.type) && (
+                  <div className="field"><label>失败补偿工具</label><input className="input" value={String(selected.config?.compensation ?? '')} onChange={(e) => updateConfig({ compensation: e.target.value })} placeholder="refund.cancel" /><div className="hint">节点成功后登记补偿；流程失败时按逆序调用。</div></div>
+                )}
+
                 <div className="row"><Button size="sm" onClick={() => { addNode(selected.type) }}><Icon name="copy" />复制节点</Button><span className="spacer" /><Button size="sm" kind="danger" onClick={removeNode}><Icon name="trash" />删除节点</Button></div>
               </div>
             </>

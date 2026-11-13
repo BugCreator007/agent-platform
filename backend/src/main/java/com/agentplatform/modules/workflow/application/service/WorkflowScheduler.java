@@ -28,7 +28,7 @@ public class WorkflowScheduler {
     @Scheduled(fixedDelayString = "${app.workflow.scheduler.interval-ms:60000}")
     public void tick() {
         Set<String> active = Set.copyOf(instances.findAll().stream()
-                .filter(i -> Set.of("RUNNING", "WAITING_APPROVAL").contains(i.status()))
+                .filter(i -> Set.of("RUNNING", "WAITING_APPROVAL", "WAITING_TIMER", "WAITING_SUBFLOW").contains(i.status()))
                 .map(WorkflowInstance::workflowId).toList());
         for (Workflow workflow : workflows.findAll()) {
             String trigger = workflow.trigger() == null ? "" : workflow.trigger();

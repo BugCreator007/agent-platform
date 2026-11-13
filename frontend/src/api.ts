@@ -263,6 +263,7 @@ export interface WorkflowNode {
   type: string
   title: string
   meta: string
+  config?: Record<string, unknown>
 }
 
 export interface Workflow {
@@ -301,6 +302,7 @@ export interface WorkflowInstance {
   startedAt: string
   finishedAt: string | null
   error: string | null
+  resumeAt?: string | null
 }
 
 export interface WorkflowNodeRun {

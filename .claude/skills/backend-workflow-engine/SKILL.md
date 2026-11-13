@@ -1,6 +1,6 @@
 ---
 name: backend-workflow-engine
-description: 修改流程编排执行器、流程实例、节点执行、人工审批恢复、重试或定时触发时使用。
+description: 修改流程编排执行器、图执行、并行/条件/子流程/补偿/定时器、审批恢复或 NOTIFY 发送时使用。
 ---
 
 # 工作流执行器开发
@@ -9,7 +9,7 @@ description: 修改流程编排执行器、流程实例、节点执行、人工�
 
 - `modules/workflow/domain/model/{Workflow,WorkflowInstance,WorkflowNodeRun}.java`
 - `modules/workflow/application/service/WorkflowExecutionService.java`
-- `modules/workflow/application/service/WorkflowScheduler.java`
+- `modules/workflow/application/service/{WorkflowScheduler,WorkflowResumeScheduler,WorkflowNotificationService,WorkflowExpressionService,WorkflowRunState}.java`
 - `modules/workflow/interfaces/rest/WorkflowInstanceController.java`
 - 前端 `pages/Workflow.tsx`
 - `framework/config/AsyncConfig.java`
@@ -17,17 +17,21 @@ description: 修改流程编排执行器、流程实例、节点执行、人工�
 ## 数据模型
 
 ```text
-workflows              流程定义（nodes_json）
-workflow_instances     一次运行实例
-workflow_node_runs     每个节点的执行记录
+workflows              流程定义（nodes_json，节点 config 保存 next/condition/config）
+workflow_instances     一次运行实例（state_json、resume_at）
+workflow_node_runs     每个节点的执行记录（含 COMPENSATION / SKIPPED）
 ```
 
 ## 执行规则
 
 - `start()` 保存实例后通过 `workflowExecutor` 异步执行。
-- 节点类型：START、KNOWLEDGE、MODEL、TOOL、CONDITION、APPROVAL、NOTIFY、END。
-- 节点失败按 `app.workflow.max-attempts` 重试。
-- APPROVAL 节点暂停实例为 `WAITING_APPROVAL`，审批后从下一节点恢复。
+- 节点 config：`next`（多目标即并行）、`trueNext`/`falseNext`、`delaySeconds`、`workflowId`、`channel`/`target`/`message`、`compensation`。
+- 条件节点用 SpEL 计算 `expression`，只激活 true 或 false 出边；未选中的下游节点标记 SKIPPED。
+- 同一波次多个 ready 节点并行执行；JOIN 等待所有有效入边，跳过无效分支。
+- TIMER 进入 `WAITING_TIMER` 并写 `resume_at`；SUBFLOW 进入 `WAITING_SUBFLOW`；`WorkflowResumeScheduler` 每 5 秒恢复。
+- NOTIFY 通过企微 Webhook 或节点 target 的真实 HTTP Webhook 发送；失败会触发节点重试/补偿。
+- 节点失败按 `app.workflow.max-attempts` 重试；最终失败时按补偿栈逆序调用工具。
+- APPROVAL 暂停实例为 `WAITING_APPROVAL`，审批后从持久化 state 恢复。
 - 实例结束更新 `workflows.runs/success`。
 - 不要在 HTTP 请求线程中同步跑完整流程。
 

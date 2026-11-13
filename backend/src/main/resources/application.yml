@@ -108,6 +108,7 @@ app:
       allow-private: ${ALLOW_PRIVATE_WEB:false}
   workflow:
     max-attempts: ${WORKFLOW_MAX_ATTEMPTS:2}
+    resume-interval-ms: ${WORKFLOW_RESUME_INTERVAL_MS:5000}
     scheduler:
       enabled: ${WORKFLOW_SCHEDULER_ENABLED:false}
       interval-ms: ${WORKFLOW_SCHEDULER_INTERVAL_MS:60000}

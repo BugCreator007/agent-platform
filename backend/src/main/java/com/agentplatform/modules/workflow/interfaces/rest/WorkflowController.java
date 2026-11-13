@@ -2,6 +2,7 @@ package com.agentplatform.modules.workflow.interfaces.rest;
 
 import com.agentplatform.common.api.ApiResponse;
 import com.agentplatform.modules.workflow.application.service.WorkflowApplicationService;
+import com.agentplatform.modules.workflow.application.service.WorkflowExecutionService;
 import com.agentplatform.modules.workflow.domain.model.Workflow;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -13,9 +14,11 @@ import java.util.Map;
 @RequestMapping("/api/v1/workflows")
 public class WorkflowController {
     private final WorkflowApplicationService applicationService;
+    private final WorkflowExecutionService execution;
 
-    public WorkflowController(WorkflowApplicationService applicationService) {
+    public WorkflowController(WorkflowApplicationService applicationService, WorkflowExecutionService execution) {
         this.applicationService = applicationService;
+        this.execution = execution;
     }
 
     @GetMapping
@@ -45,8 +48,9 @@ public class WorkflowController {
     @PostMapping("/{id}/test")
     public ApiResponse<Map<String, Object>> test(@PathVariable String id) {
         Workflow workflow = applicationService.test(id);
-        return ApiResponse.ok(Map.of("workflow", workflow.name(), "status", "success",
-                "nodes", workflow.nodes().size(), "durationMs", 1820));
+        var instance = execution.start(id, "{\"test\":true}");
+        return ApiResponse.ok(Map.of("workflow", workflow.name(), "status", instance.status(),
+                "instanceId", instance.id(), "nodes", workflow.nodes().size()));
     }
 
     @PreAuthorize("hasAnyRole('PLATFORM_ADMIN','DEVELOPER')")
@@ -62,8 +66,10 @@ public class WorkflowController {
                 .filter(item -> item instanceof Map<?, ?>)
                 .map(item -> {
                     Map<String, Object> m = (Map<String, Object>) item;
+                    Map<String, Object> config = m.get("config") instanceof Map<?, ?> c
+                            ? (Map<String, Object>) c : Map.of();
                     return new com.agentplatform.modules.workflow.domain.model.WorkflowNode(
-                            str(m.get("key")), str(m.get("type")), str(m.get("title")), str(m.get("meta")));
+                            str(m.get("key")), str(m.get("type")), str(m.get("title")), str(m.get("meta")), config);
                 })
                 .toList();
     }

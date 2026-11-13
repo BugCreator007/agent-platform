@@ -34,12 +34,15 @@
 - 知识分块与向量持久化。
 
 ### 工作流
-- 流程实例、节点执行记录持久化。
-- 顺序执行 START/KNOWLEDGE/MODEL/TOOL/CONDITION/APPROVAL/NOTIFY/END。
+- 流程实例、节点执行记录、运行状态和分支选择持久化。
+- 图执行：START/KNOWLEDGE/MODEL/TOOL/CONDITION/APPROVAL/NOTIFY/TIMER/SUBFLOW/JOIN/END。
+- 并行 fan-out、JOIN 汇聚、SpEL 条件路由。
+- TIMER 与 SUBFLOW 进入等待态，由常驻恢复调度器继续执行。
+- 节点补偿工具按逆序执行；NOTIFY 支持企微与通用 Webhook 真实发送。
 - 节点失败重试、错误记录、成功/失败统计。
 - 人工审批等待、审批恢复、取消。
 - 可选定时触发调度器。
-- 前端运行实例列表、节点执行记录、审批/取消。
+- 前端运行实例列表、节点执行记录、审批/取消、节点配置。
 
 ### 运维与发布
 - Prometheus 指标、OpenTelemetry OTLP tracing 配置、运行时/工作流指标。
@@ -52,7 +55,7 @@
 - DeepSeek 可以使用环境变量 `DEEPSEEK_API_KEY`，也可以在模型厂商页面配置；Kimi、千问、Anthropic、OpenAI、智谱需要在页面配置各自的 Key 后才会真实调用。
 - Embedding 未配置远程模型时使用哈希向量，语义效果有限；生产建议配置 bge-m3 等模型。
 - Milvus/Elasticsearch 默认关闭；Docker Compose 已提供，生产需配置实际地址与凭证。
-- 工作流为顺序执行模型，复杂并行分支、补偿事务、分布式锁尚未实现。
+- 工作流已支持并行分支、汇聚、条件路由、子流程、补偿和定时器；跨进程分布式锁与大规模任务队列仍需生产化。
 - 工具执行支持 HTTP 与 MCP；MCP OAuth、resources/prompts、写工具人工审批和周期性健康检查仍未实现。
 - 评测门禁已接入，但评测执行目前是演示评分；真实评测集用例执行与评分器仍需扩展。
 - 告警指标目前来自 Micrometer 与成本汇总，更多业务指标需要补充埋点。

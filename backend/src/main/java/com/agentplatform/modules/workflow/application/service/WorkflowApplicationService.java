@@ -3,6 +3,7 @@ package com.agentplatform.modules.workflow.application.service;
 import com.agentplatform.common.error.BusinessException;
 import com.agentplatform.common.error.ErrorCode;
 import com.agentplatform.modules.workflow.domain.model.Workflow;
+import com.agentplatform.modules.workflow.domain.repository.WorkflowInstanceRepository;
 import com.agentplatform.modules.workflow.domain.repository.WorkflowRepository;
 import org.springframework.stereotype.Service;
 
@@ -13,9 +14,11 @@ import java.util.UUID;
 @Service
 public class WorkflowApplicationService {
     private final WorkflowRepository repository;
+    private final WorkflowInstanceRepository instances;
 
-    public WorkflowApplicationService(WorkflowRepository repository) {
+    public WorkflowApplicationService(WorkflowRepository repository, WorkflowInstanceRepository instances) {
         this.repository = repository;
+        this.instances = instances;
     }
 
     public List<Workflow> list() { return repository.findAll(); }
@@ -41,12 +44,22 @@ public class WorkflowApplicationService {
     }
 
     public List<Map<String, Object>> runs(String id) {
-        require(id);
-        return List.of(
-                Map.of("id", "run_" + id.substring(Math.max(0, id.length() - 4)) + "_01", "workflowName", get(id).name(), "status", "success", "duration", "2.18s", "time", "2 分钟前"),
-                Map.of("id", "run_" + id.substring(Math.max(0, id.length() - 4)) + "_02", "workflowName", get(id).name(), "status", "success", "duration", "1.94s", "time", "18 分钟前"),
-                Map.of("id", "run_" + id.substring(Math.max(0, id.length() - 4)) + "_03", "workflowName", get(id).name(), "status", "failed", "duration", "3.02s", "time", "43 分钟前")
-        );
+        Workflow workflow = require(id);
+        return instances.findAll().stream()
+                .filter(i -> workflow.id().equals(i.workflowId()))
+                .sorted((a, b) -> b.startedAt().compareTo(a.startedAt()))
+                .limit(20)
+                .map(i -> {
+                    Map<String, Object> row = new java.util.LinkedHashMap<>();
+                    row.put("id", i.id());
+                    row.put("workflowName", i.workflowName());
+                    row.put("status", i.status().toLowerCase());
+                    row.put("duration", i.finishedAt() == null ? "运行中"
+                            : ((i.finishedAt().toEpochMilli() - i.startedAt().toEpochMilli()) + " ms"));
+                    row.put("time", i.startedAt().toString());
+                    return row;
+                })
+                .toList();
     }
 
     public Workflow test(String id) {

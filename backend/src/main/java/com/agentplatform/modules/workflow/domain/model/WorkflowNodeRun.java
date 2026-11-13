@@ -25,6 +25,9 @@ public class WorkflowNodeRun {
     }
     public void succeed(String output) { this.status="SUCCESS"; this.outputJson=output; this.finishedAt=Instant.now(); }
     public void waitApproval() { this.status="WAITING_APPROVAL"; }
+    public void waitTimer() { this.status="WAITING_TIMER"; }
+    public void waitSubflow() { this.status="WAITING_SUBFLOW"; }
+    public void skip(String reason) { this.status="SKIPPED"; this.outputJson=reason; this.finishedAt=Instant.now(); }
     public void fail(String error) { this.status="FAILED"; this.error=error; this.finishedAt=Instant.now(); }
     public String id() { return id; }
     public String instanceId() { return instanceId; }

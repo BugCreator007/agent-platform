@@ -98,10 +98,12 @@ Agent 运行时按智能体绑定的 `providerId + modelId` 选择真实模型�
 
 ### 工作流
 
-- 流程实例持久化（`workflow_instances`、`workflow_node_runs`）。
-- 顺序节点执行：START、KNOWLEDGE、MODEL、TOOL、CONDITION、APPROVAL、NOTIFY、END。
-- 节点重试、失败记录、执行日志。
-- 人工审批等待与恢复。
+- 图执行：显式 `next` 边、并行 fan-out、JOIN 汇聚、真实 TRUE/FALSE 条件路由。
+- 节点类型：START、KNOWLEDGE、MODEL、TOOL、CONDITION、APPROVAL、NOTIFY、TIMER、SUBFLOW、JOIN、END。
+- 定时器与子流程持久化为 `WAITING_TIMER` / `WAITING_SUBFLOW`，由常驻恢复调度器继续执行。
+- 节点可配置补偿工具，失败时按成功节点逆序执行补偿事务。
+- NOTIFY 支持企业微信 Webhook 和通用 HTTP Webhook 真实发送。
+- 人工审批等待与恢复；执行状态、节点输出和条件分支选择持久化。
 - 可选定时触发（`WORKFLOW_SCHEDULER_ENABLED=true`）。
 
 ### 运维与发布
