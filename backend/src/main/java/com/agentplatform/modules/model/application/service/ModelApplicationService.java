@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ModelApplicationService {
@@ -75,6 +77,13 @@ public class ModelApplicationService {
     @Transactional
     public void deleteProvider(String id) {
         requireProvider(id);
+        List<ModelInfo> all = repository.findModels();
+        Set<String> removed = all.stream()
+                .filter(m -> id.equals(m.providerId()))
+                .map(ModelInfo::id)
+                .collect(Collectors.toSet());
+        List<ModelInfo> remaining = all.stream().filter(m -> !removed.contains(m.id())).toList();
+        cleanupRouting(removed, remaining);
         repository.deleteModelsByProvider(id);
         repository.deleteProvider(id);
     }
@@ -105,7 +114,11 @@ public class ModelApplicationService {
 
     @Transactional
     public void deleteModel(String id) {
-        repository.findModel(id).orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模型不存在: " + id));
+        ModelInfo target = repository.findModel(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "模型不存在: " + id));
+        List<ModelInfo> remaining = repository.findModels().stream()
+                .filter(m -> !m.id().equals(target.id())).toList();
+        cleanupRouting(Set.of(target.id()), remaining);
         repository.deleteModel(id);
     }
 
@@ -144,9 +157,37 @@ public class ModelApplicationService {
         return target;
     }
 
+    private void cleanupRouting(Set<String> removed, List<ModelInfo> remaining) {
+        if (removed.isEmpty()) return;
+        RoutingPolicy current = routing();
+        String currentPrimary = current.primary();
+        boolean primaryStillExists = currentPrimary != null && !removed.contains(currentPrimary)
+                && remaining.stream().anyMatch(m -> m.id().equals(currentPrimary));
+        List<String> survivingFallback = current.fallback() == null ? List.of() : current.fallback().stream()
+                .filter(f -> !removed.contains(f))
+                .filter(f -> remaining.stream().anyMatch(m -> m.id().equals(f)))
+                .distinct()
+                .toList();
+        String primary = primaryStillExists ? currentPrimary
+                : survivingFallback.stream().findFirst()
+                .orElseGet(() -> remaining.stream().filter(ModelInfo::isDefault).map(ModelInfo::id).findFirst()
+                        .orElseGet(() -> remaining.stream()
+                                .filter(m -> !"paused".equalsIgnoreCase(m.status()))
+                                .map(ModelInfo::id)
+                                .findFirst()
+                                .orElseGet(() -> remaining.stream().map(ModelInfo::id).findFirst().orElse(null))));
+        List<String> fallback = survivingFallback.stream().filter(f -> !f.equals(primary)).toList();
+        repository.saveRouting(new RoutingPolicy(current.strategy(), primary, fallback, current.region()));
+        markDefault(primary, remaining);
+    }
+
     private void markDefault(String modelId) {
+        markDefault(modelId, repository.findModels());
+    }
+
+    private void markDefault(String modelId, List<ModelInfo> models) {
         if (modelId == null || modelId.isBlank()) return;
-        for (ModelInfo model : repository.findModels()) {
+        for (ModelInfo model : models) {
             boolean shouldDefault = model.id().equals(modelId);
             if (model.isDefault() != shouldDefault) {
                 model.setDefault(shouldDefault);

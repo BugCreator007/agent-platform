@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type ModelInfo, type Provider, type ProviderTestResult } from '../api'
+import { api, type AuthUser, type ModelInfo, type Provider, type ProviderTestResult } from '../api'
 import { Icon } from '../components/icons'
 import {
   Avatar,
@@ -37,6 +37,8 @@ export function ModelsPage() {
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api.get<Provider[]>('/providers') })
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.get<ModelInfo[]>('/models') })
   const routingQuery = useQuery({ queryKey: ['model-routing'], queryFn: () => api.get<RoutingPolicy>('/models/routing') })
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<AuthUser>('/auth/me') })
+  const canDelete = me.data?.roles?.includes('PLATFORM_ADMIN') ?? false
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['providers'] })
@@ -105,6 +107,16 @@ export function ModelsPage() {
   const createProvider = useMutation({
     mutationFn: (values: Record<string, unknown>) => api.post<Provider>('/providers', values),
     onSuccess: () => { toast('厂商已接入'); setAddOpen(false); setNewProvider({ name: '', endpoint: 'https://api.example.com/v1', region: '华东 1', key: '', quota: 10000, protocol: 'openai' }); refresh() },
+    onError: (e: Error) => toast(e.message, 'err'),
+  })
+  const deleteProvider = useMutation({
+    mutationFn: (id: string) => api.del<void>(`/providers/${id}`),
+    onSuccess: () => { toast('厂商及其模型已删除'); setSelected(null); refresh() },
+    onError: (e: Error) => toast(e.message, 'err'),
+  })
+  const deleteModel = useMutation({
+    mutationFn: (id: string) => api.del<void>(`/models/${id}`),
+    onSuccess: () => { toast('模型已删除'); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
@@ -310,7 +322,19 @@ export function ModelsPage() {
                       <thead><tr><th>模型</th><th>能力</th><th className="num">上下文</th><th>上游模型</th><th className="num">权重</th><th style={{ textAlign: 'right' }}>默认</th></tr></thead>
                       <tbody>
                         {providerModels.map((m) => (
-                          <tr key={m.id}><td><b>{m.name}</b><div className="sub mono">{m.id}</div></td><td>{m.capabilities.join(' · ')}</td><td className="num">{m.context}</td><td className="mono" style={{ fontSize: 11 }}>{m.upstreamModel}</td><td className="num">{m.routeWeight}%</td><td style={{ textAlign: 'right' }}>{m.isDefault ? <Badge tone="info">默认</Badge> : <Button size="sm" onClick={() => setDefault.mutate(m.id)}>设为默认</Button>}</td></tr>
+                          <tr key={m.id}>
+                            <td><b>{m.name}</b><div className="sub mono">{m.id}</div></td>
+                            <td>{m.capabilities.join(' · ')}</td>
+                            <td className="num">{m.context}</td>
+                            <td className="mono" style={{ fontSize: 11 }}>{m.upstreamModel}</td>
+                            <td className="num">{m.routeWeight}%</td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                                {m.isDefault ? <Badge tone="info">默认</Badge> : <Button size="sm" onClick={() => setDefault.mutate(m.id)}>设为默认</Button>}
+                                {canDelete && <Button size="sm" kind="danger" onClick={() => { if (window.confirm(`删除模型 ${m.name}？绑定它的智能体会回退到路由策略。`)) deleteModel.mutate(m.id) }}>删除</Button>}
+                              </div>
+                            </td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
@@ -328,6 +352,7 @@ export function ModelsPage() {
             </div>
             <div className="drawer-foot">
               <Button kind="danger" onClick={() => act.mutate({ id: selected.id, act: 'toggle' })}>{selected.status === 'paused' ? '启用厂商' : '停用厂商'}</Button>
+              {canDelete && <Button kind="danger" onClick={() => { if (window.confirm(`删除厂商 ${selected.name}？该厂商下的 ${providerModels.length} 个模型会一并删除，引用这些模型的智能体会回退到路由策略。`)) deleteProvider.mutate(selected.id) }}><Icon name="trash" />删除厂商</Button>}
               <span className="spacer" />
               <Button onClick={() => testProvider.mutate(selected.id)}><Icon name="zap" />测试连接</Button>
               <Button kind="primary" onClick={openRouting}><Icon name="settings" />路由策略</Button>
