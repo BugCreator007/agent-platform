@@ -17,4 +17,5 @@ public class JpaToolRepository implements ToolRepository {
     @Override public List<Tool> findAll() { return jpa.findAll().stream().map(ToolEntity::toDomain).toList(); }
     @Override public Optional<Tool> findByName(String name) { return jpa.findById(name).map(ToolEntity::toDomain); }
     @Override public void save(Tool tool) { jpa.save(ToolEntity.from(tool)); }
+    @Override public void deleteByName(String name) { jpa.deleteById(name); }
 }

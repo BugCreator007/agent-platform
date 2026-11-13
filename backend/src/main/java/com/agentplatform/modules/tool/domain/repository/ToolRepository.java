@@ -9,4 +9,5 @@ public interface ToolRepository {
     List<Tool> findAll();
     Optional<Tool> findByName(String name);
     void save(Tool tool);
+    void deleteByName(String name);
 }

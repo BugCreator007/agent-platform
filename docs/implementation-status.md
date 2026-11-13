@@ -51,7 +51,7 @@
 - Embedding 未配置远程模型时使用哈希向量，语义效果有限；生产建议配置 bge-m3 等模型。
 - Milvus/Elasticsearch 默认关闭；Docker Compose 已提供，生产需配置实际地址与凭证。
 - 工作流为顺序执行模型，复杂并行分支、补偿事务、分布式锁尚未实现。
-- 工具执行为 HTTP/模拟执行，MCP 客户端握手与工具发现尚未完整实现。
+- 工具执行支持 HTTP 与 MCP；MCP OAuth、resources/prompts、写工具人工审批和周期性健康检查仍未实现。
 - 评测门禁已接入，但评测执行目前是演示评分；真实评测集用例执行与评分器仍需扩展。
 - 告警指标目前来自 Micrometer 与成本汇总，更多业务指标需要补充埋点。
 - 腾讯云中间件（CDB、Redis、TDMQ、COS、ES、Milvus、CLS/APM）配置已预留，未在真实云环境联调。

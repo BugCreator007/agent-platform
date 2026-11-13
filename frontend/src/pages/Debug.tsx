@@ -15,6 +15,7 @@ export function DebugPage() {
   const [streaming, setStreaming] = useState(false)
   const [contexts, setContexts] = useState(0)
   const [runtimeModel, setRuntimeModel] = useState('')
+  const [toolNotes, setToolNotes] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
@@ -41,6 +42,7 @@ export function DebugPage() {
     setSessionId(session.id)
     setContexts(0)
     setRuntimeModel('')
+    setToolNotes([])
     try {
       const list = await api.get<SessionMessage[]>(`/sessions/${session.id}/messages`)
       const persisted = list.filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -57,6 +59,7 @@ export function DebugPage() {
     setMessages([])
     setContexts(0)
     setRuntimeModel('')
+    setToolNotes([])
   }
 
   const send = async () => {
@@ -98,6 +101,10 @@ export function DebugPage() {
             } catch { /* ignore */ }
           } else if (event === 'delta') {
             setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, content: m.content + data } : m))
+          } else if (event === 'tool') {
+            try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `调用工具 · ${t.name}`]) } catch { /* ignore */ }
+          } else if (event === 'tool-result') {
+            try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `工具返回 · ${t.name} · ${t.error ? '失败' : '成功'}`]) } catch { /* ignore */ }
           } else if (event === 'done') {
             try { const d = JSON.parse(data); setSessionId(d.sessionId ?? sessionId); setRuntimeModel(d.model ?? runtimeModel) } catch { /* ignore */ }
             queryClient.invalidateQueries({ queryKey: ['sessions'] })
@@ -175,6 +182,7 @@ export function DebugPage() {
                 <div className="bubble">{m.content}{m.role === 'assistant' && streaming && i === messages.length - 1 && <span className="typing">▍</span>}</div>
               </div>
             ))}
+            {toolNotes.map((note, i) => <div key={`tool-${i}`} className="chat-note"><Icon name="tools" /><div>{note}</div></div>)}
           </div>
           <div className="debug-composer">
             <textarea className="input" rows={2} value={input} disabled={streaming} placeholder={streaming ? '模型生成中…' : '输入消息，Enter 发送，Shift+Enter 换行'} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />

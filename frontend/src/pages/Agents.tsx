@@ -368,8 +368,9 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const [streaming, setStreaming] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [contexts, setContexts] = useState(0)
+  const [toolNotes, setToolNotes] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
-  useEffect(() => { setMessages([]); setInput(''); setStreaming(false); setSessionId(''); setContexts(0); abortRef.current?.abort() }, [agent?.id])
+  useEffect(() => { setMessages([]); setInput(''); setStreaming(false); setSessionId(''); setContexts(0); setToolNotes([]); abortRef.current?.abort() }, [agent?.id])
   useEffect(() => () => abortRef.current?.abort(), [])
 
   const send = async () => {
@@ -410,6 +411,10 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
             } catch { /* ignore */ }
           } else if (event === 'delta') {
             setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, text: m.text + data } : m))
+          } else if (event === 'tool') {
+            try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `调用工具 · ${t.name}`]) } catch { /* ignore */ }
+          } else if (event === 'tool-result') {
+            try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `工具返回 · ${t.name} · ${t.error ? '失败' : '成功'}`]) } catch { /* ignore */ }
           } else if (event === 'done') {
             try { const d = JSON.parse(data); setSessionId(d.sessionId ?? '') } catch { /* ignore */ }
             toast('沙盒运行完成')
@@ -445,6 +450,7 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
                   <div className="bubble">{m.text}</div>
                 </div>
               ))}
+              {toolNotes.map((note, i) => <div key={`tool-${i}`} className="chat-note"><Icon name="tools" /><div>{note}</div></div>)}
             </div>
             <div className="chat-input">
               <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder={streaming ? '模型生成中…' : '输入问题，回车发送…'} disabled={streaming} onKeyDown={(e) => { if (e.key === 'Enter') send() }} />

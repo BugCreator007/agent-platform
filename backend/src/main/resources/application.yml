@@ -79,6 +79,7 @@ app:
       api-key: ${DEEPSEEK_API_KEY:}
       model: ${DEEPSEEK_MODEL:deepseek-flash}
   security:
+    secrets-key: ${SECRETS_KEY:agent-platform-local-secrets-change-me}
     bootstrap-admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:admin123}
     jwt:
       secret: ${JWT_SECRET:agent-platform-local-dev-secret-change-me-32b}
@@ -98,6 +99,10 @@ app:
       enabled: ${ES_ENABLED:false}
       url: ${ES_URL:http://localhost:9200}
       index: ${ES_INDEX:agent_chunks}
+  mcp:
+    allow-private-urls: ${MCP_ALLOW_PRIVATE_URLS:true}
+    stdio:
+      allowed-commands: ${MCP_STDIO_ALLOWED_COMMANDS:npx,node,python,python3,uvx}
   knowledge:
     web:
       allow-private: ${ALLOW_PRIVATE_WEB:false}

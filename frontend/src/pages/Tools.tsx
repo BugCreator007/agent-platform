@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type Tool } from '../api'
+import { api, type McpServer, type McpTool, type Tool } from '../api'
 import { Icon } from '../components/icons'
 import {
   Badge,
@@ -22,10 +22,13 @@ export function ToolsPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [toolForm, setToolForm] = useState({ name: '', type: 'HTTP', owner: '客服平台', description: '', endpoint: '' })
-  const [mcpForm, setMcpForm] = useState({ name: '', mode: 'stdio', endpoint: '' })
+  const [mcpForm, setMcpForm] = useState({ name: '', transport: 'streamable-http', url: '', command: '', args: '', authType: 'bearer', authToken: '' })
+  const [mcpDetail, setMcpDetail] = useState<McpServer | null>(null)
 
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api.get<Tool[]>('/tools') })
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['tools'] })
+  const mcpServers = useQuery({ queryKey: ['mcp-servers'], queryFn: () => api.get<McpServer[]>('/mcp-servers') })
+  const mcpTools = useQuery({ queryKey: ['mcp-tools', mcpDetail?.id], queryFn: () => api.get<McpTool[]>(`/mcp-servers/${mcpDetail!.id}/tools`), enabled: !!mcpDetail })
+  const refresh = () => { queryClient.invalidateQueries({ queryKey: ['tools'] }); queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }) }
 
   const toggle = useMutation({
     mutationFn: (name: string) => api.post<Tool>(`/tools/${encodeURIComponent(name)}/toggle`),
@@ -42,9 +45,33 @@ export function ToolsPage() {
     onSuccess: () => { toast('工具已注册'); setAddOpen(false); setToolForm({ name: '', type: 'HTTP', owner: '客服平台', description: '', endpoint: '' }); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
-  const addMcp = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post<Tool>('/tools/mcp', body),
-    onSuccess: () => { toast('MCP 服务已接入'); setMcpOpen(false); setMcpForm({ name: '', mode: 'stdio', endpoint: '' }); refresh() },
+  const connectMcp = useMutation({
+    mutationFn: (id: string) => api.post<McpServer>(`/mcp-servers/${id}/connect`),
+    onSuccess: (server) => {
+      toast(`MCP 服务 ${server.name} 连接成功，发现 ${server.toolCount} 个工具`)
+      queryClient.invalidateQueries({ queryKey: ['mcp-servers'] })
+      queryClient.invalidateQueries({ queryKey: ['tools'] })
+      queryClient.invalidateQueries({ queryKey: ['mcp-tools', server.id] })
+    },
+    onError: (e: Error) => toast(e.message, 'err'),
+  })
+  const createMcp = useMutation({
+    mutationFn: () => api.post<McpServer>('/mcp-servers', mcpForm),
+    onSuccess: (server) => {
+      setMcpOpen(false)
+      setMcpForm({ name: '', transport: 'streamable-http', url: '', command: '', args: '', authType: 'bearer', authToken: '' })
+      connectMcp.mutate(server.id)
+    },
+    onError: (e: Error) => toast(e.message, 'err'),
+  })
+  const deleteMcp = useMutation({
+    mutationFn: (id: string) => api.del<void>(`/mcp-servers/${id}`),
+    onSuccess: () => { toast('MCP 服务已删除'); queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }); queryClient.invalidateQueries({ queryKey: ['tools'] }) },
+    onError: (e: Error) => toast(e.message, 'err'),
+  })
+  const toggleMcpTool = useMutation({
+    mutationFn: (id: string) => api.put<McpTool>(`/mcp-tools/${id}/toggle`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mcp-tools', mcpDetail?.id] }); queryClient.invalidateQueries({ queryKey: ['tools'] }) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
@@ -68,6 +95,32 @@ export function ToolsPage() {
         <div className="panel stat"><div className="lb">健康</div><div className="vl">{healthy}</div><div className="delta"><Badge tone="good">正常</Badge><Badge tone="warn">{degraded} 降级</Badge></div></div>
         <div className="panel stat"><div className="lb">今日调用</div><div className="vl">{totalCalls.toLocaleString()}</div><div className="delta"><span className="up">↑ 8.4%</span><span>较昨日</span></div></div>
         <div className="panel stat"><div className="lb">平均错误率</div><div className="vl">{list.length ? (list.reduce((s, t) => s + t.errorRate, 0) / list.length).toFixed(1) : 0}<small>%</small></div><div className="delta"><span className="down">↓ 0.2pt</span></div></div>
+      </div>
+
+      <div className="section-head"><h2>MCP 服务</h2><span className="section-note">真实握手、工具发现与调用记录</span></div>
+      <div className="grid-3">
+        {(mcpServers.data ?? []).map((m) => (
+          <article className="panel provider-card" key={m.id}>
+            <div className="pv-head">
+              <div className="pv-logo" style={{ background: 'var(--pine-wash)', color: 'var(--pine-deep)' }}>M</div>
+              <div><div className="pv-name">{m.name}</div><div className="pv-sub">{m.transport} · {m.url || m.command || '—'}</div></div>
+              <StatusBadge status={m.status === 'CONNECTED' ? 'healthy' : m.status === 'ERROR' ? 'down' : 'pending'} />
+            </div>
+            <div className="pv-stats">
+              <div className="pv-stat"><div className="lb">工具</div><div className="vl">{m.toolCount}</div></div>
+              <div className="pv-stat"><div className="lb">认证</div><div className="vl" style={{ fontSize: 14 }}>{m.authType || '无'}</div></div>
+              <div className="pv-stat"><div className="lb">连接</div><div className="vl" style={{ fontSize: 13 }}>{m.lastConnectedAt ? '已连接' : '未连接'}</div></div>
+            </div>
+            {m.lastError && <div className="callout mt-2" style={{ fontSize: 11 }}>{m.lastError}</div>}
+            <div className="pv-foot">
+              <Button size="sm" onClick={() => connectMcp.mutate(m.id)} disabled={connectMcp.isPending}>同步工具</Button>
+              <Button size="sm" kind="ghost" onClick={() => setMcpDetail(m)}>查看工具</Button>
+              <span className="spacer" />
+              <Button size="sm" kind="danger" onClick={() => { if (window.confirm(`删除 MCP 服务 ${m.name}？`)) deleteMcp.mutate(m.id) }}>删除</Button>
+            </div>
+          </article>
+        ))}
+        {!mcpServers.data?.length && <div className="panel" style={{ padding: 20 }}><div className="empty"><Icon name="tools" /><b>还没有 MCP 服务</b>点击右上角“接入 MCP”连接 Streamable HTTP、SSE 或 stdio 服务。</div></div>}
       </div>
 
       <div className="filterbar mt-3">
@@ -130,12 +183,44 @@ export function ToolsPage() {
         <div className="field"><label>描述</label><textarea className="input" rows={3} value={toolForm.description} onChange={(e) => setToolForm({ ...toolForm, description: e.target.value })} placeholder="这个工具做什么，入参和出参是什么" /></div>
       </Modal>
 
-      <Modal open={mcpOpen} onClose={() => setMcpOpen(false)} title="接入 MCP 服务" sub="通过 Model Context Protocol 连接外部能力" footer={<><span className="spacer" /><Button onClick={() => setMcpOpen(false)}>取消</Button><Button kind="primary" disabled={!mcpForm.name.trim()} onClick={() => addMcp.mutate({ ...mcpForm, type: 'MCP', owner: '供应链', description: 'MCP 服务' })}>连接并验证</Button></>}>
-        <div className="field"><label>服务名称</label><input className="input" value={mcpForm.name} onChange={(e) => setMcpForm({ ...mcpForm, name: e.target.value })} placeholder="inventory-mcp" /></div>
-        <div className="field"><label>连接方式</label><select className="select" value={mcpForm.mode} onChange={(e) => setMcpForm({ ...mcpForm, mode: e.target.value })}><option>stdio</option><option>SSE</option><option>Streamable HTTP</option></select></div>
-        <div className="field"><label>启动命令 / URL</label><input className="input" value={mcpForm.endpoint} onChange={(e) => setMcpForm({ ...mcpForm, endpoint: e.target.value })} placeholder="npx @example/inventory-mcp" /></div>
-        <div className="callout info"><Icon name="shield" /><div>接入前会执行能力探测，只注册用户批准的工具。</div></div>
+      <Modal open={!!mcpDetail} onClose={() => setMcpDetail(null)} title={`MCP 工具 · ${mcpDetail?.name ?? ''}`} sub={`${mcpDetail?.transport ?? ''} · ${mcpDetail?.url || mcpDetail?.command || ''}`} wide footer={<><span className="spacer" /><Button onClick={() => setMcpDetail(null)}>关闭</Button><Button kind="primary" onClick={() => mcpDetail && connectMcp.mutate(mcpDetail.id)}>重新同步</Button></>}>
+        <div className="table-wrap">
+          <table className="data">
+            <thead><tr><th>工具</th><th>风险</th><th>Schema</th><th>状态</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
+            <tbody>
+              {(mcpTools.data ?? []).map((t) => (
+                <tr key={t.id}>
+                  <td><b className="mono" style={{ fontSize: 11 }}>{t.name}</b><div className="sub">{t.description}</div></td>
+                  <td><Badge tone={t.riskLevel === 'write' ? 'warn' : 'neutral'}>{t.riskLevel === 'write' ? '写操作' : '读操作'}</Badge></td>
+                  <td><div className="mono" style={{ fontSize: 10, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.inputSchema}</div></td>
+                  <td>{t.enabled ? <Badge tone="good">已启用</Badge> : <Badge>已停用</Badge>}</td>
+                  <td style={{ textAlign: 'right' }}><Button size="sm" onClick={() => toggleMcpTool.mutate(t.id)}>{t.enabled ? '停用' : '启用'}</Button></td>
+                </tr>
+              ))}
+              {!mcpTools.data?.length && <tr><td colSpan={5}><div className="empty"><Icon name="tools" /><b>暂无工具</b>点击“重新同步”执行 tools/list。</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
       </Modal>
+
+      <Modal open={mcpOpen} onClose={() => setMcpOpen(false)} title="接入 MCP 服务" sub="连接 MCP Server，执行 initialize / tools/list 并注册工具" footer={<><span className="spacer" /><Button onClick={() => setMcpOpen(false)}>取消</Button><Button kind="primary" disabled={!mcpForm.name.trim() || createMcp.isPending || (mcpForm.transport === 'stdio' ? !mcpForm.command.trim() : !mcpForm.url.trim())} onClick={() => createMcp.mutate()}>连接并验证</Button></>}>
+        <div className="field"><label>服务名称</label><input className="input" value={mcpForm.name} onChange={(e) => setMcpForm({ ...mcpForm, name: e.target.value })} placeholder="inventory-mcp" /></div>
+        <div className="field"><label>传输方式</label><select className="select" value={mcpForm.transport} onChange={(e) => setMcpForm({ ...mcpForm, transport: e.target.value })}><option value="streamable-http">Streamable HTTP</option><option value="sse">SSE</option><option value="stdio">stdio</option></select></div>
+        {mcpForm.transport === 'stdio' ? (
+          <>
+            <div className="field"><label>启动命令</label><input className="input" value={mcpForm.command} onChange={(e) => setMcpForm({ ...mcpForm, command: e.target.value })} placeholder="npx" /><div className="hint">仅允许 npx、node、python、python3、uvx，可通过 MCP_STDIO_ALLOWED_COMMANDS 扩展。</div></div>
+            <div className="field"><label>命令参数</label><input className="input" value={mcpForm.args} onChange={(e) => setMcpForm({ ...mcpForm, args: e.target.value })} placeholder="@modelcontextprotocol/server-filesystem /tmp" /></div>
+          </>
+        ) : (
+          <div className="field"><label>服务 URL</label><input className="input" value={mcpForm.url} onChange={(e) => setMcpForm({ ...mcpForm, url: e.target.value })} placeholder={mcpForm.transport === 'sse' ? 'https://mcp.example.com/sse' : 'https://mcp.example.com/mcp'} /></div>
+        )}
+        <div className="field-grid">
+          <div className="field"><label>认证方式</label><select className="select" value={mcpForm.authType} onChange={(e) => setMcpForm({ ...mcpForm, authType: e.target.value })}><option value="bearer">Bearer Token</option><option value="api-key">API Key Header</option><option value="none">无认证</option></select></div>
+          <div className="field"><label>Token / Key</label><input className="input" type="password" value={mcpForm.authToken} onChange={(e) => setMcpForm({ ...mcpForm, authToken: e.target.value })} placeholder="可选，加密存储" /></div>
+        </div>
+        <div className="callout info"><Icon name="shield" /><div>连接后会执行 MCP 握手并拉取 tools/list；发现到的工具会加入工具目录，可绑定到智能体。</div></div>
+      </Modal>
+
     </>
   )
 }

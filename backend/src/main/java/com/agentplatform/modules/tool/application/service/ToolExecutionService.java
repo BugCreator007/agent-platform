@@ -13,14 +13,20 @@ import java.util.Map;
 public class ToolExecutionService {
     private final ToolRepository tools;
     private final WebClient.Builder builder;
-    public ToolExecutionService(ToolRepository tools, WebClient.Builder builder) {
-        this.tools = tools; this.builder = builder;
+    private final McpRuntimeService mcp;
+    public ToolExecutionService(ToolRepository tools, WebClient.Builder builder, McpRuntimeService mcp) {
+        this.tools = tools; this.builder = builder; this.mcp = mcp;
     }
 
     public String execute(String name, String input) {
         Tool tool = tools.findByName(name)
                 .orElseThrow(() -> new IllegalArgumentException("工具不存在: " + name));
         if (!tool.enabled()) throw new IllegalStateException("工具已停用: " + name);
+        if ("MCP".equalsIgnoreCase(tool.type())) {
+            var outcome = mcp.execute(name, java.util.Map.of("input", input == null ? "" : input));
+            if (outcome.error()) throw new IllegalStateException(outcome.text());
+            return outcome.text();
+        }
         if (tool.endpoint() != null && !tool.endpoint().isBlank()) {
             try {
                 String response = builder.build().post().uri(tool.endpoint())

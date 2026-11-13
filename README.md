@@ -62,6 +62,7 @@ npm run dev
 | Milvus | `MILVUS_ENABLED`、`MILVUS_URL`、`MILVUS_COLLECTION` |
 | Elasticsearch | `ES_ENABLED`、`ES_URL`、`ES_INDEX` |
 | 文件存储 | `STORAGE_TYPE=local|cos`、`STORAGE_LOCAL_ROOT`、`COS_*` |
+| MCP | `MCP_ALLOW_PRIVATE_URLS`、`MCP_STDIO_ALLOWED_COMMANDS` |
 | 企微告警 | `app.notify.wecom-webhook` |
 | 引导管理员 | `BOOTSTRAP_ADMIN_PASSWORD` |
 

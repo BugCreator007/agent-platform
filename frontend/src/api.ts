@@ -205,6 +205,37 @@ export interface EvalRun {
   status: string
 }
 
+export interface McpServer {
+  id: string
+  name: string
+  transport: string
+  url: string | null
+  command: string | null
+  args: string | null
+  authType: string | null
+  enabled: boolean
+  status: string
+  lastError: string | null
+  lastConnectedAt: string | null
+  toolCount: number
+}
+
+export interface McpTool {
+  id: string
+  serverId: string
+  toolKey: string
+  name: string
+  description: string
+  inputSchema: string
+  enabled: boolean
+  riskLevel: string
+}
+
+export interface McpCallOutcome {
+  error: boolean
+  text: string
+}
+
 export interface Tool {
   name: string
   type: string
