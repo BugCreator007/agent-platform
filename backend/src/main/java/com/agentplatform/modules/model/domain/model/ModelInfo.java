@@ -15,10 +15,18 @@ public class ModelInfo {
     private final String status;
     private final int routeWeight;
     private boolean isDefault;
+    private final String upstreamModel;
 
     public ModelInfo(String id, String providerId, String name, String context, double inPrice,
                      double outPrice, List<String> capabilities, long calls, String latency,
                      String status, int routeWeight, boolean isDefault) {
+        this(id, providerId, name, context, inPrice, outPrice, capabilities, calls, latency,
+                status, routeWeight, isDefault, id);
+    }
+
+    public ModelInfo(String id, String providerId, String name, String context, double inPrice,
+                     double outPrice, List<String> capabilities, long calls, String latency,
+                     String status, int routeWeight, boolean isDefault, String upstreamModel) {
         this.id = id;
         this.providerId = providerId;
         this.name = name;
@@ -31,6 +39,7 @@ public class ModelInfo {
         this.status = status;
         this.routeWeight = routeWeight;
         this.isDefault = isDefault;
+        this.upstreamModel = upstreamModel == null || upstreamModel.isBlank() ? id : upstreamModel;
     }
 
     public void setDefault(boolean value) { this.isDefault = value; }
@@ -46,4 +55,5 @@ public class ModelInfo {
     public String status() { return status; }
     public int routeWeight() { return routeWeight; }
     public boolean isDefault() { return isDefault; }
+    public String upstreamModel() { return upstreamModel; }
 }

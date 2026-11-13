@@ -144,6 +144,7 @@ export interface Provider {
   name: string
   status: string
   endpoint: string
+  protocol: string
   models: number
   calls: number
   share: number
@@ -152,8 +153,16 @@ export interface Provider {
   quota: number
   used: number
   key: string
+  keyConfigured: boolean
   region: string
   route: string
+}
+
+export interface ProviderTestResult {
+  ok: boolean
+  status: string
+  latency: string
+  message: string
 }
 
 export interface ModelInfo {
@@ -169,6 +178,7 @@ export interface ModelInfo {
   status: string
   routeWeight: number
   isDefault: boolean
+  upstreamModel: string
 }
 
 export interface Release {

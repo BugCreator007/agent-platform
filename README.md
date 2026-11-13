@@ -1,6 +1,6 @@
 # Agent Platform
 
-Agent 平台管理后台，前后端分离，后端按 DDD 限界上下文组织，支持 MySQL 持久化、JWT/OIDC、RBAC、审计、DeepSeek 流式对话、知识库摄取与混合检索、工作流执行和腾讯云部署。
+Agent 平台管理后台，前后端分离，后端按 DDD 限界上下文组织，支持 MySQL 持久化、JWT/OIDC、RBAC、审计、多模型流式对话（DeepSeek / Kimi / 千问 / Anthropic 等）、知识库摄取与混合检索、工作流执行和腾讯云部署。
 
 ## 目录
 
@@ -57,7 +57,7 @@ npm run dev
 | Redis | `REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD` |
 | JWT | `JWT_SECRET`（至少 32 字节）、`JWT_EXPIRES_MINUTES` |
 | OIDC | `OIDC_ISSUER_URI`；设置后同时接受 OIDC 与本地 JWT |
-| DeepSeek | `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` |
+| 模型厂商 | 页面加密保存 DeepSeek / Kimi / 千问 / Anthropic / OpenAI / 智谱 API Key；DeepSeek 可使用 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 作为环境变量回退 |
 | Embedding | `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSION` |
 | Milvus | `MILVUS_ENABLED`、`MILVUS_URL`、`MILVUS_COLLECTION` |
 | Elasticsearch | `ES_ENABLED`、`ES_URL`、`ES_INDEX` |
@@ -66,7 +66,7 @@ npm run dev
 | 企微告警 | `app.notify.wecom-webhook` |
 | 引导管理员 | `BOOTSTRAP_ADMIN_PASSWORD` |
 
-本地未配置 `DEEPSEEK_API_KEY` 时，Agent 运行时使用本地演示流式响应；配置后会调用 DeepSeek `chat/completions` 的 SSE 接口。Embedding 未配置时使用确定性本地哈希向量，配置后使用 OpenAI-compatible `/embeddings`。
+Agent 运行时按智能体绑定的 `providerId + modelId` 选择真实模型：OpenAI-compatible 协议覆盖 DeepSeek、Kimi、千问、OpenAI、智谱，Anthropic 使用 Messages API。主模型失败且尚未输出内容时按路由策略切换备用模型；完全没有可用 Key 时才使用本地演示流。Embedding 未配置时使用确定性本地哈希向量，配置后使用 OpenAI-compatible `/embeddings`。
 
 ## 已实现能力
 
@@ -80,7 +80,8 @@ npm run dev
 
 ### Agent 运行时
 
-- DeepSeek Chat Completions 流式适配（SSE）。
+- 多厂商流式适配：DeepSeek / Kimi / 千问 / OpenAI / 智谱（OpenAI-compatible）与 Anthropic Messages（SSE）。
+- 智能体级模型绑定、真实 Provider 连通性测试、AES-GCM 密钥存储与备用模型故障转移。
 - 智能体提示词、工具、知识库上下文组装。
 - 知识库混合检索结果注入系统提示词。
 - 简单工具调用上下文（订单/退款场景）。

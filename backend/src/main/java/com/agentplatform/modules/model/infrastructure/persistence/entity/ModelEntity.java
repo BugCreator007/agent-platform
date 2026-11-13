@@ -22,17 +22,19 @@ public class ModelEntity {
     private String status;
     @Column(name = "route_weight") private int routeWeight;
     @Column(name = "is_default") private boolean isDefault;
+    @Column(name = "upstream_model") private String upstreamModel;
 
     public static ModelEntity from(ModelInfo m) {
         ModelEntity e = new ModelEntity();
         e.id = m.id(); e.providerId = m.providerId(); e.name = m.name(); e.context = m.context();
         e.inPrice = m.inPrice(); e.outPrice = m.outPrice(); e.capabilities = m.capabilities();
         e.calls = m.calls(); e.latency = m.latency(); e.status = m.status(); e.routeWeight = m.routeWeight();
-        e.isDefault = m.isDefault();
+        e.isDefault = m.isDefault(); e.upstreamModel = m.upstreamModel();
         return e;
     }
     public ModelInfo toDomain() {
         return new ModelInfo(id, providerId, name, context, inPrice, outPrice,
-                capabilities == null ? List.of() : capabilities, calls, latency, status, routeWeight, isDefault);
+                capabilities == null ? List.of() : capabilities, calls, latency, status, routeWeight,
+                isDefault, upstreamModel);
     }
 }

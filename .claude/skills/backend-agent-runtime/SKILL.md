@@ -1,6 +1,6 @@
 ---
 name: backend-agent-runtime
-description: 修改 Agent 运行时、DeepSeek 流式对话、SSE、提示词组装、RAG/工具上下文或会话消息持久化时使用。
+description: 修改 Agent 运行时、多模型路由、流式对话、SSE、提示词组装、RAG/工具上下文或会话消息持久化时使用。
 ---
 
 # Agent 运行时开发
@@ -8,7 +8,10 @@ description: 修改 Agent 运行时、DeepSeek 流式对话、SSE、提示词组
 ## 先读
 
 - `modules/chat/application/runtime/AgentRuntimeService.java`
-- `modules/chat/infrastructure/ai/DeepSeekClient.java`
+- `modules/chat/infrastructure/ai/ModelGateway.java`
+- `modules/chat/infrastructure/ai/OpenAiCompatibleClient.java`
+- `modules/chat/infrastructure/ai/AnthropicClient.java`
+- `modules/model/application/query/{ModelCatalog,ModelRoute}.java`
 - `modules/chat/interfaces/rest/RuntimeController.java`
 - `modules/chat/domain/model/{ChatSession,SessionMessage}.java`
 - `modules/knowledge/application/service/KnowledgeApplicationService.java`
@@ -21,17 +24,18 @@ description: 修改 Agent 运行时、DeepSeek 流式对话、SSE、提示词组
 POST /api/v1/runtime/sessions:stream
  → 加载 Agent
  → 组装提示词 + 知识上下文 + 工具上下文
- → 按 providerId/modelId 选择模型
- → DeepSeek SSE
- → 发送 meta/delta/done/error
+ → ModelCatalog 按 providerId/modelId + routing fallback 解析 ModelRoute
+ → ModelGateway 按 protocol 选择 OpenAI-compatible / Anthropic 客户端
+ → 主模型失败且尚未输出内容时切换备用模型
+ → 发送 meta/delta/done/error（MCP 额外发送 tool/tool-result）
  → 持久化 SessionMessage 与 ChatSession
 ```
 
 ## SSE 事件契约
 
-- `meta`：sessionId、agent、model、providerId、modelId、mock、contexts。
+- `meta`：sessionId、agent、model、providerId、modelId、provider、route、fallbacks、mock、contexts；有 MCP 工具时带 tools。
 - `delta`：纯文本增量。
-- `done`：sessionId、tokens、ms、model、mock、contexts。
+- `done`：与 meta 相同的路由字段，加上 tokens、ms、mock、contexts。
 - `error`：`{ "message": "..." }`。
 
 前端用 `fetch` + `ReadableStream` 解析，不用原生 EventSource（无法带 Bearer Header）。
@@ -43,17 +47,19 @@ POST /api/v1/runtime/sessions:stream
 - 历史消息只取最近 12 条，避免上下文爆炸。
 - `Map.of` 不允许 null；providerId/modelId 可能为空，必须转空字符串。
 - 不要在日志中打印完整提示词、用户隐私、API Key 或工具凭据。
-- 未配置 DeepSeek Key 时保留本地演示流，不能启动失败。
-- 非 DeepSeek 厂商适配器未接入时，应明确提示回退，不要静默伪装成绑定厂商。
+- 没有任何可用 Provider Key 时保留本地演示流，不能启动失败；有 Key 时必须真实请求厂商。
+- 主模型已输出 token 后不要切换备用模型，避免重复回答。
+- 错误信息可以包含 provider/model/HTTP 状态，但不能包含 API Key、完整请求体或用户隐私。
 
 ## 模型绑定
 
-Agent 的 `providerId` + `modelId` 决定运行时模型。新增厂商适配器时：
+Agent 的 `providerId` + `modelId` 决定运行时模型；`ModelCatalog` 再追加路由策略里的 fallback。
 
-1. 在 Provider/Model 目录确认 modelId。
-2. 增加模型 ID 到实际网关的映射。
-3. 在 `AgentRuntimeService` 里按 provider 选择客户端。
-4. 记录实际使用的模型到 `SessionMessage.model` 和 trace。
+1. Provider 的 `protocol` 决定客户端：`openai`（DeepSeek/Kimi/千问/OpenAI/智谱）或 `anthropic`。
+2. Provider 密钥加密存储，`ProviderCredentialResolver` 只对 DeepSeek 提供 `DEEPSEEK_API_KEY` 环境变量回退。
+3. Model 的 `upstreamModel` 才是发给厂商的 `model` 参数；平台内 `id` 只用于绑定。
+4. ModelGateway 只在主模型尚未输出任何 chunk 时切换 fallback，并把路由信息写入 meta/done/trace。
+5. 新增 provider 时同步更新 `ProviderEntity`、`ModelEntity`、`V7__model_provider_routing.sql` 和前端 `Models.tsx`。
 
 ## 验证
 

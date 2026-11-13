@@ -14,6 +14,7 @@ public interface ModelRepository {
     Optional<ModelInfo> findModel(String id);
     void saveProvider(Provider provider);
     void saveModel(ModelInfo model);
+    void deleteModel(String id);
     RoutingPolicy routing();
     void saveRouting(RoutingPolicy routing);
     void deleteProvider(String id);

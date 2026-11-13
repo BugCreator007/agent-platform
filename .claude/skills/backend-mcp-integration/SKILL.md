@@ -32,7 +32,8 @@ MCP 已经落到 `tool` 模块，运行时可用：
 - `modules/tool/application/service/McpRuntimeService.java`
 - `modules/tool/interfaces/rest/McpController.java`
 - `modules/chat/application/runtime/AgentRuntimeService.java`
-- `modules/chat/infrastructure/ai/DeepSeekClient.java`
+- `modules/chat/infrastructure/ai/ModelGateway.java`
+- `modules/chat/infrastructure/ai/OpenAiCompatibleClient.java`
 - 前端 `pages/Tools.tsx`
 
 ## 数据表

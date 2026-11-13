@@ -8,8 +8,8 @@ import com.agentplatform.modules.chat.domain.model.TraceStep;
 import com.agentplatform.modules.chat.domain.repository.SessionMessageRepository;
 import com.agentplatform.modules.chat.domain.repository.SessionRepository;
 import com.agentplatform.modules.chat.infrastructure.ai.AiMessage;
-import com.agentplatform.modules.chat.infrastructure.ai.DeepSeekClient;
 import com.agentplatform.modules.chat.infrastructure.ai.ChatChunk;
+import com.agentplatform.modules.chat.infrastructure.ai.ModelGateway;
 import com.agentplatform.modules.chat.infrastructure.ai.ToolCall;
 import com.agentplatform.modules.tool.application.query.McpCallOutcome;
 import com.agentplatform.modules.tool.application.query.McpToolBinding;
@@ -18,6 +18,7 @@ import com.agentplatform.modules.knowledge.application.query.RetrievalHit;
 import com.agentplatform.modules.knowledge.application.query.RetrievalResult;
 import com.agentplatform.modules.knowledge.application.service.KnowledgeApplicationService;
 import com.agentplatform.modules.tool.application.service.ToolExecutionService;
+import com.agentplatform.modules.model.application.query.ModelRoute;
 import io.micrometer.core.instrument.MeterRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
@@ -44,7 +45,7 @@ public class AgentRuntimeService {
     private final AgentApplicationService agents;
     private final SessionRepository sessions;
     private final SessionMessageRepository messages;
-    private final DeepSeekClient model;
+    private final ModelGateway model;
     private final KnowledgeApplicationService knowledge;
     private final ToolExecutionService tools;
     private final McpRuntimeService mcp;
@@ -52,7 +53,7 @@ public class AgentRuntimeService {
     private final MeterRegistry meters;
 
     public AgentRuntimeService(AgentApplicationService agents, SessionRepository sessions,
-                               SessionMessageRepository messages, DeepSeekClient model,
+                               SessionMessageRepository messages, ModelGateway model,
                                KnowledgeApplicationService knowledge,
                                ToolExecutionService tools, McpRuntimeService mcp,
                                ObjectMapper objectMapper, MeterRegistry meters) {
@@ -107,27 +108,29 @@ public class AgentRuntimeService {
             try { toolContext = tools.execute("order.query", request.message()); } catch (RuntimeException ignored) { }
         }
         String systemPrompt = buildSystemPrompt(agent, contexts, toolContext);
-        String resolvedModel = model.modelName(agent.modelId() == null ? agent.model() : agent.modelId());
+        List<ModelRoute> routes = model.routes(agent.providerId(), agent.modelId());
+        String resolvedModel = routes.isEmpty()
+                ? (agent.modelId() == null || agent.modelId().isBlank() ? agent.model() : agent.modelId())
+                : routes.get(0).modelName();
+        String resolvedProvider = model.providerLabel(routes);
+        String routeLabel = model.routeLabel(routes);
+        boolean mock = !model.configured(routes);
         List<McpToolBinding> mcpBindings;
         try { mcpBindings = mcp.bindings(agent.tools()); } catch (RuntimeException e) { mcpBindings = List.of(); }
         if (!mcpBindings.isEmpty()) {
             try {
-                emitter.send(SseEmitter.event().name("meta").data(Map.of(
-                        "sessionId", sessionId, "agent", agent.name(), "model", resolvedModel,
-                        "providerId", agent.providerId() == null ? "" : agent.providerId(),
-                        "modelId", agent.modelId() == null ? "" : agent.modelId(),
-                        "mock", !model.configured(), "contexts", contexts.size(),
-                        "tools", mcpBindings.size())));
+                emitter.send(SseEmitter.event().name("meta").data(
+                        meta(sessionId, agent, routes, resolvedModel, contexts.size(), mcpBindings.size())));
             } catch (IOException e) {
                 emitter.completeWithError(e);
                 return emitter;
             }
             final List<McpToolBinding> bindings = List.copyOf(mcpBindings);
             CompletableFuture.runAsync(() -> runMcpLoop(emitter, agent, request, sessionId, start,
-                    contexts.size(), systemPrompt, resolvedModel, history, bindings));
+                    contexts.size(), systemPrompt, resolvedModel, resolvedProvider, routeLabel, history, bindings, routes));
             return emitter;
         }
-        Disposable disposable = model.stream(resolvedModel, systemPrompt, history).subscribe(
+        Disposable disposable = model.stream(routes, systemPrompt, history).subscribe(
                 delta -> {
                     answer.append(delta);
                     tokens.addAndGet(Math.max(1, delta.length() / 2));
@@ -155,33 +158,33 @@ public class AgentRuntimeService {
                             java.time.Instant.now()));
                     ChatSession session = new ChatSession(sessionId, agent.id(), agent.name(), "success",
                             turns, 0, totalTokens, elapsed, LocalTime.now().format(TIME), topic,
-                            List.of(new TraceStep("model", "DeepSeek 流式生成", elapsed,
-                                    newTokens, "ok", "模型：" + resolvedModel + " · 上下文 " + contexts.size() + " 条")));
+                            List.of(new TraceStep("model", "模型流式生成", elapsed,
+                                    newTokens, "ok", "路由：" + routeLabel + " · 上下文 " + contexts.size() + " 条")));
                     sessions.save(session);
                     meters.timer("agent_runtime_duration", "agent", agent.name())
                             .record(elapsed, java.util.concurrent.TimeUnit.MILLISECONDS);
                     try {
-                        emitter.send(SseEmitter.event().name("done").data(Map.of(
-                                "sessionId", sessionId, "tokens", session.tokens(), "ms", elapsed,
-                                "model", resolvedModel, "mock", !model.configured(), "contexts", contexts.size())));
+                        Map<String, Object> done = meta(sessionId, agent, routes, resolvedModel, contexts.size(), 0);
+                        done.put("tokens", session.tokens());
+                        done.put("ms", elapsed);
+                        done.put("mock", mock);
+                        emitter.send(SseEmitter.event().name("done").data(done));
                         emitter.complete();
                     } catch (IOException e) { emitter.completeWithError(e); }
                 });
         emitter.onCompletion(disposable::dispose);
         emitter.onTimeout(() -> { disposable.dispose(); emitter.complete(); });
         try {
-            emitter.send(SseEmitter.event().name("meta").data(Map.of(
-                    "sessionId", sessionId, "agent", agent.name(), "model", resolvedModel,
-                    "providerId", agent.providerId() == null ? "" : agent.providerId(),
-                    "modelId", agent.modelId() == null ? "" : agent.modelId(),
-                    "mock", !model.configured(), "contexts", contexts.size())));
+            emitter.send(SseEmitter.event().name("meta").data(
+                    meta(sessionId, agent, routes, resolvedModel, contexts.size(), 0)));
         } catch (IOException e) { emitter.completeWithError(e); }
         return emitter;
     }
 
     private void runMcpLoop(SseEmitter emitter, AgentSummary agent, RuntimeChatRequest request,
                             String sessionId, long start, int contextCount, String systemPrompt,
-                            String resolvedModel, List<AiMessage> history, List<McpToolBinding> bindings) {
+                            String resolvedModel, String resolvedProvider, String routeLabel,
+                            List<AiMessage> history, List<McpToolBinding> bindings, List<ModelRoute> routes) {
         StringBuilder answer = new StringBuilder();
         AtomicLong tokens = new AtomicLong();
         List<AiMessage> chat = new ArrayList<>(history);
@@ -189,7 +192,7 @@ public class AgentRuntimeService {
         try {
             for (int round = 0; round < 4; round++) {
                 StringBuilder roundText = new StringBuilder();
-                List<ChatChunk> chunks = model.streamWithTools(resolvedModel, systemPrompt, chat, toolDefinitions)
+                List<ChatChunk> chunks = model.streamWithTools(routes, systemPrompt, chat, toolDefinitions)
                         .doOnNext(chunk -> {
                             if (chunk.content() != null && !chunk.content().isEmpty()) {
                                 roundText.append(chunk.content());
@@ -227,13 +230,14 @@ public class AgentRuntimeService {
                 }
             }
             int newTokens = (int) Math.max(1, tokens.get());
-            saveCompletedSession(agent, request, sessionId, start, contextCount, resolvedModel,
-                    answer.toString(), newTokens, "MCP 工具链 · " + bindings.size() + " 个工具");
+            saveCompletedSession(agent, request, sessionId, start, contextCount, resolvedModel, resolvedProvider,
+                    routeLabel, answer.toString(), newTokens, "MCP 工具链 · " + bindings.size() + " 个工具");
             try {
-                emitter.send(SseEmitter.event().name("done").data(Map.of(
-                        "sessionId", sessionId, "tokens", newTokens, "ms", System.currentTimeMillis() - start,
-                        "model", resolvedModel, "mock", !model.configured(), "contexts", contextCount,
-                        "tools", bindings.size())));
+                Map<String, Object> done = meta(sessionId, agent, routes, resolvedModel, contextCount, bindings.size());
+                done.put("tokens", newTokens);
+                done.put("ms", System.currentTimeMillis() - start);
+                done.put("mock", !model.configured(routes));
+                emitter.send(SseEmitter.event().name("done").data(done));
                 emitter.complete();
             } catch (IOException e) { emitter.completeWithError(e); }
         } catch (Exception e) {
@@ -287,8 +291,8 @@ public class AgentRuntimeService {
     }
 
     private void saveCompletedSession(AgentSummary agent, RuntimeChatRequest request, String sessionId,
-                                      long start, int contextCount, String resolvedModel,
-                                      String answer, int newTokens, String detail) {
+                                      long start, int contextCount, String resolvedModel, String resolvedProvider,
+                                      String routeLabel, String answer, int newTokens, String detail) {
         ChatSession existing = sessions.findById(sessionId).orElse(null);
         int turns = existing == null ? 1 : existing.turns() + 1;
         int totalTokens = (existing == null ? 0 : existing.tokens()) + newTokens;
@@ -299,10 +303,31 @@ public class AgentRuntimeService {
         long elapsed = System.currentTimeMillis() - start;
         sessions.save(new ChatSession(sessionId, agent.id(), agent.name(), "success", turns, 0, totalTokens,
                 elapsed, LocalTime.now().format(TIME), topic,
-                List.of(new TraceStep("model", "DeepSeek + MCP 工具链", elapsed, newTokens, "ok",
-                        "模型：" + resolvedModel + " · " + detail))));
+                List.of(new TraceStep("model", "模型 + MCP 工具链", elapsed, newTokens, "ok",
+                        "路由：" + routeLabel + " · 提供方：" + resolvedProvider + " · 模型：" + resolvedModel + " · " + detail))));
         meters.timer("agent_runtime_duration", "agent", agent.name())
                 .record(elapsed, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+
+    private Map<String, Object> meta(String sessionId, AgentSummary agent, List<ModelRoute> routes,
+                                     String resolvedModel, int contextCount, int toolCount) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", sessionId);
+        data.put("agent", agent.name());
+        data.put("model", resolvedModel);
+        data.put("providerId", routes.isEmpty()
+                ? (agent.providerId() == null ? "" : agent.providerId())
+                : routes.get(0).providerId());
+        data.put("modelId", routes.isEmpty()
+                ? (agent.modelId() == null ? "" : agent.modelId())
+                : routes.get(0).modelId());
+        data.put("provider", model.providerLabel(routes));
+        data.put("route", model.routeLabel(routes));
+        data.put("fallbacks", routes.stream().skip(1).map(ModelRoute::label).toList());
+        data.put("mock", !model.configured(routes));
+        data.put("contexts", contextCount);
+        if (toolCount > 0) data.put("tools", toolCount);
+        return data;
     }
 
     private String buildSystemPrompt(AgentSummary agent, List<RetrievalHit> contexts, String toolContext) {

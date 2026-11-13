@@ -17,7 +17,9 @@
 - 会话调试页、会话消息持久化、历史会话回看；智能体与模型厂商/模型绑定。
 
 ### Agent 运行时
-- DeepSeek `chat/completions` 流式适配；未配置 Key 时提供本地演示流。
+- 多模型路由：OpenAI-compatible（DeepSeek、Kimi、千问、OpenAI、智谱）与 Anthropic Messages。
+- 智能体按 `providerId + modelId` 绑定真实模型，按路由策略执行主模型失败转移。
+- Provider 密钥使用 AES-GCM 加密入库，连通性测试会真实请求厂商；未配置任何 Key 时提供本地演示流。
 - Agent 运行时注入提示词、工具、知识库上下文，SSE 输出。
 - 知识库检索结果与工具调用结果进入系统提示词。
 - 运行时会话与调用链写入数据库。
@@ -47,7 +49,7 @@
 
 ## 仍是演示/待完善
 
-- DeepSeek 真实调用需要设置 `DEEPSEEK_API_KEY`；未设置时返回本地演示流。
+- DeepSeek 可以使用环境变量 `DEEPSEEK_API_KEY`，也可以在模型厂商页面配置；Kimi、千问、Anthropic、OpenAI、智谱需要在页面配置各自的 Key 后才会真实调用。
 - Embedding 未配置远程模型时使用哈希向量，语义效果有限；生产建议配置 bge-m3 等模型。
 - Milvus/Elasticsearch 默认关闭；Docker Compose 已提供，生产需配置实际地址与凭证。
 - 工作流为顺序执行模型，复杂并行分支、补偿事务、分布式锁尚未实现。

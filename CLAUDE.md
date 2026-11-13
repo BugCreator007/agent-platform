@@ -7,7 +7,7 @@ Agent 平台管理后台，前后端分离：
 - 后端：Java 21 / Spring Boot 3.5 / Spring Modulith，单 Maven 模块，包内 DDD 四层。
 - 前端：React 19 / TypeScript / Vite。
 - 数据：MySQL 8 + Flyway + JPA；测试使用 H2 MySQL 模式。
-- 运行时：DeepSeek SSE、RAG、Milvus/Elasticsearch、持久化工作流。
+- 运行时：多模型路由（OpenAI-compatible + Anthropic）、SSE、RAG、Milvus/Elasticsearch、持久化工作流。
 - 部署：Docker Compose、TKE 清单、腾讯云中间件配置。
 
 ## 常用命令
@@ -31,6 +31,9 @@ npm run build
 
 # 本地完整基础设施
 docker compose -f deploy/docker-compose.yml up -d
+
+# 单台腾讯云 CVM 生产部署（rsync + 远端 compose 构建）
+./deploy/server/deploy.sh root@<公网IP>
 ```
 
 本地地址：
@@ -84,7 +87,7 @@ docker compose -f deploy/docker-compose.yml up -d
 ## 当前运行配置
 
 - `.env` 本地保存 DeepSeek/Embedding/存储配置，权限 600，已被 `.gitignore` 忽略。
-- 真实 DeepSeek 网关：`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL=deepseek-flash`。
+- 模型厂商：DeepSeek / Kimi / 千问 / Anthropic / OpenAI / 智谱；密钥在页面加密保存，DeepSeek 支持 `DEEPSEEK_API_KEY` 环境变量回退。
 - 未配置 Key 时使用本地演示流；未配置 Embedding Key 时使用本地哈希向量。
 - Milvus/ES 默认本地 Docker 服务；生产地址通过环境变量注入。
 - 对内部 Wiki 抓取需 `ALLOW_PRIVATE_WEB=true`，并谨慎使用 Cookie。

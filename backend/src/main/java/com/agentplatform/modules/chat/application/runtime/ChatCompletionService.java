@@ -1,14 +1,21 @@
 package com.agentplatform.modules.chat.application.runtime;
 
-import com.agentplatform.modules.chat.infrastructure.ai.DeepSeekClient;
+import com.agentplatform.modules.chat.infrastructure.ai.ModelGateway;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ChatCompletionService {
-    private final DeepSeekClient client;
-    public ChatCompletionService(DeepSeekClient client) { this.client = client; }
-    public String complete(String systemPrompt, String userMessage) {
-        return client.complete(systemPrompt, userMessage);
+    private final ModelGateway gateway;
+
+    public ChatCompletionService(ModelGateway gateway) {
+        this.gateway = gateway;
     }
-    public boolean configured() { return client.configured(); }
+
+    public String complete(String systemPrompt, String userMessage) {
+        return gateway.complete(gateway.defaultRoutes(), systemPrompt, userMessage);
+    }
+
+    public boolean configured() {
+        return gateway.configured(gateway.defaultRoutes());
+    }
 }

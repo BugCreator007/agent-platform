@@ -1,5 +1,6 @@
 package com.agentplatform.modules.model.infrastructure.persistence;
 
+import com.agentplatform.framework.security.SecretCipher;
 import com.agentplatform.modules.model.domain.model.ModelInfo;
 import com.agentplatform.modules.model.domain.model.Provider;
 import com.agentplatform.modules.model.domain.model.RoutingPolicy;
@@ -19,17 +20,20 @@ public class JpaModelRepository implements ModelRepository {
     private final ProviderJpaRepository providers;
     private final ModelJpaRepository models;
     private final RoutingJpaRepository routing;
+    private final SecretCipher cipher;
 
-    public JpaModelRepository(ProviderJpaRepository providers, ModelJpaRepository models, RoutingJpaRepository routing) {
-        this.providers = providers; this.models = models; this.routing = routing;
+    public JpaModelRepository(ProviderJpaRepository providers, ModelJpaRepository models,
+                              RoutingJpaRepository routing, SecretCipher cipher) {
+        this.providers = providers; this.models = models; this.routing = routing; this.cipher = cipher;
     }
 
-    @Override public List<Provider> findProviders() { return providers.findAll().stream().map(ProviderEntity::toDomain).toList(); }
-    @Override public Optional<Provider> findProvider(String id) { return providers.findById(id).map(ProviderEntity::toDomain); }
+    @Override public List<Provider> findProviders() { return providers.findAll().stream().map(p -> p.toDomain(cipher)).toList(); }
+    @Override public Optional<Provider> findProvider(String id) { return providers.findById(id).map(p -> p.toDomain(cipher)); }
     @Override public List<ModelInfo> findModels() { return models.findAll().stream().map(ModelEntity::toDomain).toList(); }
     @Override public Optional<ModelInfo> findModel(String id) { return models.findById(id).map(ModelEntity::toDomain); }
-    @Override public void saveProvider(Provider provider) { providers.save(ProviderEntity.from(provider)); }
+    @Override public void saveProvider(Provider provider) { providers.save(ProviderEntity.from(provider, cipher)); }
     @Override public void saveModel(ModelInfo model) { models.save(ModelEntity.from(model)); }
+    @Override public void deleteModel(String id) { models.deleteById(id); }
     @Override public RoutingPolicy routing() {
         return routing.findById("default").map(RoutingPolicyEntity::toDomain)
                 .orElse(new RoutingPolicy("质量优先", "claude-sonnet-5-5", List.of(), "华东 1"));
