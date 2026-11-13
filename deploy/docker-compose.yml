@@ -1,0 +1,122 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: agent-mysql
+    environment:
+      MYSQL_DATABASE: agent_platform
+      MYSQL_USER: agent
+      MYSQL_PASSWORD: agent123
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd-data:/etcd
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/minio_data
+
+  milvus:
+    image: milvusdb/milvus:v2.6.4
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - minio
+    volumes:
+      - milvus-data:/var/lib/milvus
+
+  agent-backend:
+    build:
+      context: ../backend
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/agent_platform?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+      DB_USERNAME: agent
+      DB_PASSWORD: agent123
+      REDIS_HOST: redis
+      JWT_SECRET: change-me-to-a-32-byte-production-secret
+      DEMO_SEED: "true"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_ROOT: /data/files
+      ES_ENABLED: "true"
+      ES_URL: http://elasticsearch:9200
+      MILVUS_ENABLED: "true"
+      MILVUS_URL: http://milvus:19530
+    ports:
+      - "8081:8081"
+    volumes:
+      - backend-files:/data/files
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
+      milvus:
+        condition: service_started
+
+  agent-frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - agent-backend
+
+volumes:
+  mysql-data:
+  redis-data:
+  es-data:
+  etcd-data:
+  minio-data:
+  milvus-data:
+  backend-files:

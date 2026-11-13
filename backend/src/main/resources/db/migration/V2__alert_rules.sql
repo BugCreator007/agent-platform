@@ -1,0 +1,11 @@
+CREATE TABLE alert_rules (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    metric VARCHAR(120) NOT NULL,
+    level VARCHAR(32) NOT NULL,
+    threshold_value DOUBLE NOT NULL,
+    window_label VARCHAR(64),
+    channel VARCHAR(120),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

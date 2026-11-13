@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-backend
+  namespace: agent-platform
+  labels: { app: agent-backend }
+spec:
+  replicas: 3
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels: { app: agent-backend }
+  template:
+    metadata:
+      labels: { app: agent-backend }
+    spec:
+      containers:
+        - name: backend
+          image: ccr.ccs.tencentyun.com/agent-platform/backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef: { name: agent-platform-config }
+            - secretRef: { name: agent-platform-secret }
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "2", memory: "2Gi" }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8081 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8081 }
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-backend
+  namespace: agent-platform
+spec:
+  selector: { app: agent-backend }
+  ports:
+    - port: 8081
+      targetPort: 8081
