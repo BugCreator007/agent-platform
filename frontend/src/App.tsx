@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { api, auth, type Alert, type Agent, type AuthUser, type ChatSession, type Provider, type Release, type Workflow } from './api'
@@ -21,6 +21,51 @@ import {
   ToolsPage,
   WorkflowPage,
 } from './pages'
+
+type ThemeMode = 'system' | 'light' | 'dark'
+const THEME_KEY = 'agent-theme'
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: string }> = [
+  { value: 'system', label: '跟随系统', icon: 'monitor' },
+  { value: 'light', label: '浅色', icon: 'sun' },
+  { value: 'dark', label: '深色', icon: 'moon' },
+]
+
+function readThemeMode(): ThemeMode {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
+  } catch {
+    /* storage may be unavailable */
+  }
+  return 'system'
+}
+
+function useTheme() {
+  const [mode, setMode] = useState<ThemeMode>(readThemeMode)
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const resolved = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.dataset.theme = resolved
+    root.style.colorScheme = resolved
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolved === 'dark' ? '#0F1411' : '#F2F3EE')
+    try {
+      localStorage.setItem(THEME_KEY, mode)
+    } catch {
+      /* storage may be unavailable */
+    }
+  }, [mode, resolved])
+
+  return { mode, setMode, resolved }
+}
 
 const iconMap: Record<ModuleKey, string> = {
   overview: 'overview',
@@ -97,7 +142,17 @@ const ENVS = [
   { id: 'test', name: '测试', region: '华东 1', detail: '开发联调 · 可写' },
 ]
 
-function Shell({ onLogout }: { onLogout: () => void }) {
+function Shell({
+  onLogout,
+  themeMode,
+  setThemeMode,
+  resolvedTheme,
+}: {
+  onLogout: () => void
+  themeMode: ThemeMode
+  setThemeMode: (mode: ThemeMode) => void
+  resolvedTheme: 'light' | 'dark'
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   const { data: system, isError } = useQuery({ queryKey: ['system-info'], queryFn: fetchSystemInfo })
@@ -112,6 +167,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [env, setEnv] = useState(ENVS[0])
   const [tourOpen, setTourOpen] = useState(false)
   const [tourStep, setTourStep] = useState(0)
+  const [themeOpen, setThemeOpen] = useState(false)
+  const themeAnchorRef = useRef<HTMLDivElement>(null)
 
   const selected = modules.find((m) => location.pathname.startsWith(m.path))?.key ?? 'overview'
   const current = modules.find((m) => m.key === selected)!
@@ -140,6 +197,22 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  useEffect(() => {
+    if (!themeOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!themeAnchorRef.current?.contains(event.target as Node)) setThemeOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setThemeOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [themeOpen])
 
   const openModule = (key: ModuleKey) => {
     setPaletteOpen(false)
@@ -251,6 +324,37 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 <span>{env.name}</span>
                 <Icon name="chevron-down" />
               </button>
+              <div className="theme-anchor" ref={themeAnchorRef}>
+                <button
+                  className={`icon-btn ${themeOpen ? 'active' : ''}`}
+                  onClick={() => setThemeOpen((v) => !v)}
+                  aria-label="外观设置"
+                  aria-expanded={themeOpen}
+                  title={`外观：${THEME_OPTIONS.find((option) => option.value === themeMode)?.label ?? '跟随系统'}`}
+                >
+                  <Icon name={resolvedTheme === 'dark' ? 'moon' : 'sun'} />
+                </button>
+                {themeOpen && (
+                  <div className="theme-popover">
+                    <div className="tp-head">外观</div>
+                    {THEME_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        className={`theme-option ${themeMode === option.value ? 'active' : ''}`}
+                        onClick={() => {
+                          setThemeMode(option.value)
+                          setThemeOpen(false)
+                        }}
+                      >
+                        <Icon name={option.icon} />
+                        <span>{option.label}</span>
+                        {option.value === 'system' && <small>自动</small>}
+                        {themeMode === option.value && <Icon name="check" className="tp-check" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button className="icon-btn" onClick={() => { setTourStep(0); setTourOpen(true) }} aria-label="交互导览">
                 <Icon name="help" />
               </button>
@@ -431,6 +535,7 @@ function createTour(
 
 
 export default function App() {
+  const theme = useTheme()
   const [authed, setAuthed] = useState(auth.isAuthenticated())
 
   useEffect(() => {
@@ -440,5 +545,12 @@ export default function App() {
   }, [])
 
   if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />
-  return <Shell onLogout={() => { api.post('/auth/logout').catch(() => undefined).finally(() => { auth.clear(); setAuthed(false) }) }} />
+  return (
+    <Shell
+      onLogout={() => { api.post('/auth/logout').catch(() => undefined).finally(() => { auth.clear(); setAuthed(false) }) }}
+      themeMode={theme.mode}
+      setThemeMode={theme.setMode}
+      resolvedTheme={theme.resolved}
+    />
+  )
 }

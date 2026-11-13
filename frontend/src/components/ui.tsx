@@ -166,17 +166,10 @@ export function Avatar({
   tone?: string
   size?: number
 }) {
-  const color = {
-    blue: '#E8F0FB;color:#1F4E9C',
-    amber: '#FBF1DD;color:#7A5310',
-    aqua: '#E4F4EE;color:#0B6B4A',
-    violet: '#EFECFB;color:#4B3AA6',
-    orange: '#FCEDE5;color:#9A3E14',
-  }[tone ?? ''] ?? '#EFF1E9;color:#4C554F'
   return (
     <div
-      className="avatar"
-      style={{ background: color.split(';')[0], color: color.split(';')[1]?.replace('color:', ''), width: size, height: size, fontSize: size ? size * 0.42 : undefined }}
+      className={`avatar tone-${tone ?? 'default'}`}
+      style={{ width: size, height: size, fontSize: size ? size * 0.42 : undefined }}
     >
       {text}
     </div>
@@ -330,7 +323,7 @@ export function Sparkline({
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
       <path d={d} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity=".65" />
-      {last && <circle cx={last[0]} cy={last[1]} r="2.6" fill={color} stroke="#fff" strokeWidth="1.5" />}
+      {last && <circle className="spark-cap" cx={last[0]} cy={last[1]} r="2.6" fill={color} strokeWidth="1.5" />}
     </svg>
   )
 }
