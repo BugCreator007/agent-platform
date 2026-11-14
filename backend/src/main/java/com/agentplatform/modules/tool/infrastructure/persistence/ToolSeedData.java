@@ -21,6 +21,7 @@ public class ToolSeedData {
         seed("invoice.issue", "API", "财务中台", 12300, 0.1, "healthy", "3 分钟前", true, "开具电子发票与红冲");
         seed("crm.customer", "MCP", "CRM", 6200, 0.2, "healthy", "10 分钟前", true, "读取客户画像与历史工单");
         seed("web.fetch", "内置", "通用", 4880, 3.4, "degraded", "15 分钟前", false, "抓取公网页面正文，受域名白名单限制");
+        seed("weather.query", "内置", "通用", 0, 0, "healthy", "刚刚", true, "按城市或地址查询当前实时天气");
     }
     private void seed(String name, String type, String owner, long calls, double errorRate,
                       String health, String checked, boolean enabled, String description) {

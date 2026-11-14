@@ -1,5 +1,11 @@
 # 腾讯云部署
 
+## 单台 CVM（Docker Compose）
+
+见 [server/README.md](server/README.md)：`./deploy/server/deploy.sh root@<公网IP>`。
+
+## TKE（生产集群）
+
 ## 目标架构
 
 ```text

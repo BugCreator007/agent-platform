@@ -5,7 +5,6 @@ import { api, type Overview } from '../api'
 import { Icon } from '../components/icons'
 import {
   Avatar,
-  Badge,
   Button,
   LineChart,
   Meter,
@@ -16,54 +15,59 @@ import {
   toast,
 } from '../components/ui'
 
-const RANGE_SERIES: Record<number, { labels: string[]; sessions: number[]; tools: number[] }> = {
-  7: {
-    labels: ['11-07', '11-08', '11-09', '11-10', '11-11', '11-12', '11-13'],
-    sessions: [612, 684, 741, 706, 842, 905, 1018],
-    tools: [410, 462, 501, 488, 592, 641, 728],
-  },
-  14: {
-    labels: dateLabels(14),
-    sessions: [560, 610, 592, 640, 688, 705, 662, 710, 760, 742, 810, 880, 920, 1018],
-    tools: [380, 420, 402, 445, 470, 492, 455, 501, 530, 512, 570, 618, 650, 728],
-  },
-  30: {
-    labels: dateLabels(30),
-    sessions: [420, 455, 438, 470, 512, 498, 530, 560, 545, 580, 610, 592, 640, 688, 705, 662, 710, 760, 742, 810, 790, 840, 880, 860, 920, 950, 930, 980, 1010, 1040],
-    tools: [280, 302, 290, 315, 340, 332, 355, 380, 366, 392, 410, 402, 445, 470, 492, 455, 501, 530, 512, 570, 552, 598, 618, 602, 650, 678, 662, 700, 718, 740],
-  },
+const EMPTY_SERIES = {
+  labels: [] as string[],
+  sessions: [] as number[],
+  tools: [] as number[],
+  success: [] as number[],
+  p95: [] as number[],
+  cost: [] as number[],
 }
 
-function dateLabels(n: number) {
-  const end = new Date(2026, 10, 13)
-  return Array.from({ length: n }, (_, i) => {
-    const d = new Date(end)
-    d.setDate(end.getDate() - (n - 1 - i))
-    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  })
+function deltaTone(value: string, higherIsBetter: boolean) {
+  if (!value || value === '—' || value.startsWith('0')) return ''
+  const negative = value.startsWith('-')
+  const good = higherIsBetter ? !negative : negative
+  return good ? 'up' : 'down'
 }
-
-const PULSE = [42, 48, 45, 52, 49, 58, 55, 62, 60, 67, 64, 72, 69, 76, 74, 81, 78, 85, 82, 88, 86, 91, 89, 93, 90, 95, 92, 96, 94, 97, 95, 98, 96, 99, 97, 100]
 
 export function OverviewPage() {
   const navigate = useNavigate()
   const [range, setRange] = useState(7)
   const [showTable, setShowTable] = useState(false)
-  const { data, isLoading } = useQuery({ queryKey: ['overview'], queryFn: () => api.get<Overview>('/overview') })
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['overview', range],
+    queryFn: () => api.get<Overview>(`/overview?range=${range}`),
+    refetchInterval: 60000,
+  })
 
-  const chart = RANGE_SERIES[range]
-  const agents = useMemo(() => [...(data?.agents ?? [])].sort((a, b) => b.sessions - a.sessions), [data])
+  const chart = data?.series ?? EMPTY_SERIES
+  const agents = useMemo(() => data?.agents ?? [], [data])
   const health = agents.filter((a) => ['running', 'grayscale', 'paused'].includes(a.status)).slice(0, 5)
   const activeAlerts = data?.alerts.filter((a) => a.status === 'active') ?? []
   const pendingReleases = data?.releases.filter((r) => ['approve', 'canary', 'draft'].includes(r.stage)) ?? []
+  const throughput = data?.pulse.throughput ?? []
+  const recentSessions = throughput.reduce((sum, value) => sum + value, 0)
+  const tailCount = Math.max(0, agents.length - 5)
+  const tailSessions = agents.slice(5).reduce((sum, a) => sum + a.sessions, 0)
 
   const exportReport = () => {
     const rows = [
       ['指标', '数值'],
       ['今日会话', data?.kpi.todaySessions ?? ''],
       ['任务成功率', data?.kpi.successRate ?? ''],
-      ['P95 首响', data?.kpi.p95 ?? ''],
+      ['P95 响应', data?.kpi.p95 ?? ''],
       ['本月模型成本', data?.kpi.cost ?? ''],
+      [],
+      ['日期', '会话数', '工具调用', '成功率', 'P95(ms)', '成本(元)'],
+      ...chart.labels.map((label, i) => [
+        label,
+        chart.sessions[i] ?? 0,
+        chart.tools[i] ?? 0,
+        (chart.success[i] ?? 0).toFixed(1),
+        chart.p95[i] ?? 0,
+        (chart.cost[i] ?? 0).toFixed(2),
+      ]),
     ]
     const csv = rows.map((r) => r.join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }))
@@ -78,12 +82,15 @@ export function OverviewPage() {
   if (isLoading) {
     return <Panel><div className="empty">加载运营数据…</div></Panel>
   }
+  if (isError || !data) {
+    return <Panel><div className="empty">运营数据加载失败，请稍后重试</div></Panel>
+  }
 
   return (
     <>
       <PageHead
         title="运营概览"
-        sub="掌握智能体运行、工具调用与模型成本的实时情况。数据每 60 秒刷新，当前为 14:32 的快照。"
+        sub={`数据每 60 秒刷新 · 最近更新 ${data.snapshot.generatedAt}`}
       >
         <div className="seg">
           {[7, 14, 30].map((r) => (
@@ -97,23 +104,23 @@ export function OverviewPage() {
         <div>
           <div className="pulse-label">
             <span className="live"><span className="pulse-dot" />实时脉搏</span>
-            <span>最近 60 秒 · 生产环境</span>
+            <span>最近 60 分钟 · 生产环境</span>
           </div>
           <div className="pulse-main">
-            <span className="big">38</span>
-            <span className="unit">个会话正在运行，全部链路正常</span>
+            <span className="big">{data.pulse.runningSessions}</span>
+            <span className="unit">个会话正在运行，近 30 分钟活跃</span>
           </div>
           <div className="pulse-stats">
-            <div className="pulse-stat"><div className="lb">在线智能体</div><div className="vl">6 <span className="mini-dot" /></div></div>
-            <div className="pulse-stat"><div className="lb">排队任务</div><div className="vl">0</div></div>
-            <div className="pulse-stat"><div className="lb">错误率</div><div className="vl">0.4% <span className="mini-dot warn" /></div></div>
-            <div className="pulse-stat"><div className="lb">网关 P99</div><div className="vl">86 ms</div></div>
+            <div className="pulse-stat"><div className="lb">在线智能体</div><div className="vl">{data.pulse.onlineAgents}</div></div>
+            <div className="pulse-stat"><div className="lb">近 1 小时会话</div><div className="vl">{recentSessions}</div></div>
+            <div className="pulse-stat"><div className="lb">错误率</div><div className="vl">{data.pulse.errorRate}</div></div>
+            <div className="pulse-stat"><div className="lb">P99 响应</div><div className="vl">{data.pulse.p99}</div></div>
           </div>
         </div>
         <div className="pulse-chart">
-          <div className="cap"><span>请求吞吐</span><span>峰值 1,284 rpm</span></div>
-          <PulseChart />
-          <div className="axis"><span>60 秒前</span><span>30 秒前</span><span>现在</span></div>
+          <div className="cap"><span>请求吞吐</span><span>峰值 {data.pulse.peakRpm} rpm</span></div>
+          <PulseChart values={throughput} />
+          <div className="axis"><span>60 分钟前</span><span>30 分钟前</span><span>现在</span></div>
         </div>
       </section>
 
@@ -121,29 +128,31 @@ export function OverviewPage() {
         <article className="panel stat hero-stat">
           <div className="lb"><Icon name="sessions" />今日会话</div>
           <div className="row" style={{ alignItems: 'baseline', gap: 10 }}>
-            <div className="vl">{data?.kpi.todaySessions ?? '—'}</div>
-            <span className="badge good"><span className="bd" />{data?.kpi.sessionsDelta ?? '+0%'}</span>
+            <div className="vl">{data.kpi.todaySessions}</div>
+            <span className={`badge ${data.kpi.sessionsDelta.startsWith('-') ? 'bad' : 'good'}`}>
+              <span className="bd" />{data.kpi.sessionsDelta}
+            </span>
           </div>
           <div className="spark"><Sparkline values={chart.sessions} width={220} height={46} /></div>
-          <div className="foot">较上一周期增长 2.8%，其中 28% 来自售后工单助手</div>
+          <div className="foot">较昨日 {data.kpi.sessionsDelta}，共 {chart.sessions.reduce((a, b) => a + b, 0)} 次会话</div>
         </article>
         <article className="panel stat">
           <div className="lb"><Icon name="check-circle" />任务成功率</div>
-          <div className="vl">{data?.kpi.successRate ?? '—'}</div>
-          <div className="delta"><span className="up">↑ +0.4pt</span><span>较上周期</span></div>
-          <div className="spark"><Sparkline values={[96.9, 97.2, 97.8, 97.5, 98.1, 98.2, 98.6]} color="#12A150" width={92} height={32} /></div>
+          <div className="vl">{data.kpi.successRate}</div>
+          <div className="delta"><span className={deltaTone(data.kpi.successDelta, true)}>{data.kpi.successDelta}</span><span>较昨日</span></div>
+          <div className="spark"><Sparkline values={chart.success} color="#12A150" width={92} height={32} /></div>
         </article>
         <article className="panel stat">
-          <div className="lb"><Icon name="clock" />P95 首响</div>
-          <div className="vl">{data?.kpi.p95 ?? '—'}</div>
-          <div className="delta"><span className="down">↓ -0.18s</span><span>较上周期</span></div>
-          <div className="spark"><Sparkline values={[1.62, 1.58, 1.51, 1.54, 1.42, 1.38, 1.24]} color="#2A78D6" width={92} height={32} /></div>
+          <div className="lb"><Icon name="clock" />P95 响应</div>
+          <div className="vl">{data.kpi.p95}</div>
+          <div className="delta"><span className={deltaTone(data.kpi.p95Delta, false)}>{data.kpi.p95Delta}</span><span>较昨日</span></div>
+          <div className="spark"><Sparkline values={chart.p95} color="#2A78D6" width={92} height={32} /></div>
         </article>
         <article className="panel stat">
           <div className="lb"><Icon name="cost" />本月模型成本</div>
-          <div className="vl">{data?.kpi.cost ?? '—'}</div>
-          <div className="delta"><span className="bad">↑ {data?.kpi.costDelta ?? ''}</span><span>较上月同期</span></div>
-          <div className="spark"><Sparkline values={[9800, 10100, 10400, 10700, 11200, 11800, 12480]} color="#D99A2B" width={92} height={32} /></div>
+          <div className="vl">{data.kpi.cost}</div>
+          <div className="delta"><span className={deltaTone(data.kpi.costDelta, false)}>{data.kpi.costDelta}</span><span>较上月同期</span></div>
+          <div className="spark"><Sparkline values={chart.cost} color="#D99A2B" width={92} height={32} /></div>
         </article>
       </div>
 
@@ -175,25 +184,29 @@ export function OverviewPage() {
           )}
         </Panel>
 
-        <Panel title="智能体调用分布" sub="近 7 天会话量 · Top 5" footer={<><span>长尾 3 个智能体贡献 1,349 次会话</span><span className="spacer" /><Button kind="ghost" size="sm" onClick={() => navigate('/agents')}>查看全部<Icon name="arrow-right" /></Button></>}>
-          <div className="bar-list">
-            {agents.slice(0, 5).map((a, i) => {
-              const max = agents[0]?.sessions || 1
-              const total = agents.reduce((sum, x) => sum + x.sessions, 0) || 1
-              return (
-                <div className="bar-row" key={a.id}>
-                  <div className="bar-top">
-                    <span className="bar-name">{a.name}</span>
-                    <span className="bar-val">{a.sessions.toLocaleString()}</span>
-                    <span className="bar-pct">{((a.sessions / total) * 100).toFixed(1)}%</span>
+        <Panel title="智能体调用分布" sub={`近 ${range} 天会话量 · Top 5`} footer={<><span>{tailCount > 0 ? `其余 ${tailCount} 个智能体贡献 ${tailSessions.toLocaleString()} 次会话` : '全部智能体已展示'}</span><span className="spacer" /><Button kind="ghost" size="sm" onClick={() => navigate('/agents')}>查看全部<Icon name="arrow-right" /></Button></>}>
+          {agents.some((a) => a.sessions > 0) ? (
+            <div className="bar-list">
+              {agents.slice(0, 5).map((a, i) => {
+                const max = agents[0]?.sessions || 1
+                const total = agents.reduce((sum, x) => sum + x.sessions, 0) || 1
+                return (
+                  <div className="bar-row" key={a.id}>
+                    <div className="bar-top">
+                      <span className="bar-name">{a.name}</span>
+                      <span className="bar-val">{a.sessions.toLocaleString()}</span>
+                      <span className="bar-pct">{((a.sessions / total) * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="bar-track">
+                      <div className={`bar-fill ${['', 'blue', 'amber', 'aqua', 'violet'][i]}`} style={{ width: `${(a.sessions / max) * 100}%` }} />
+                    </div>
                   </div>
-                  <div className="bar-track">
-                    <div className={`bar-fill ${['', 'blue', 'amber', 'aqua', 'violet'][i]}`} style={{ width: `${(a.sessions / max) * 100}%` }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="empty">近 {range} 天还没有会话记录</div>
+          )}
         </Panel>
       </div>
 
@@ -206,7 +219,7 @@ export function OverviewPage() {
         >
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>智能体</th><th>状态</th><th className="num">今日会话</th><th className="num">成功率</th><th className="num">P95</th><th /></tr></thead>
+              <thead><tr><th>智能体</th><th>状态</th><th className="num">近 {range} 天会话</th><th className="num">成功率</th><th className="num">P95</th><th /></tr></thead>
               <tbody>
                 {health.map((a) => (
                   <tr key={a.id} className="clickable" onClick={() => navigate('/agents')}>
@@ -218,11 +231,12 @@ export function OverviewPage() {
                     </td>
                     <td><StatusBadge status={a.status} /></td>
                     <td className="num">{a.sessions.toLocaleString()}</td>
-                    <td className="num"><Meter value={a.success} tone={a.success < 96 ? 'danger' : ''} />{a.success}%</td>
+                    <td className="num">{a.sessions === 0 ? '—' : <><Meter value={a.success} tone={a.success < 96 ? 'danger' : ''} />{a.success.toFixed(1)}%</>}</td>
                     <td className="num">{a.p95}</td>
                     <td className="num" style={{ color: '#B2BAB2' }}><Icon name="chevron-right" /></td>
                   </tr>
                 ))}
+                {!health.length && <tr><td colSpan={6}><div className="empty">暂无在线智能体</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -266,14 +280,17 @@ export function OverviewPage() {
   )
 }
 
-function PulseChart() {
+function PulseChart({ values }: { values: number[] }) {
   const width = 320
   const height = 86
-  const max = 110
-  const points = PULSE.map((v, i) => [(i / (PULSE.length - 1)) * width, height - 6 - (v / max) * (height - 14)])
+  const max = Math.max(1, ...values)
+  const points = values.map((v, i) => [
+    values.length <= 1 ? 0 : (i / (values.length - 1)) * width,
+    height - 6 - (v / max) * (height - 14),
+  ])
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
   const area = `${d} L ${width} ${height} L 0 ${height} Z`
-  const last = points[points.length - 1]
+  const last = points[points.length - 1] ?? [width, height - 6]
   return (
     <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
       <defs>

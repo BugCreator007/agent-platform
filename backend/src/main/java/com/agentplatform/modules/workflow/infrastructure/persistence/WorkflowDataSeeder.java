@@ -12,6 +12,13 @@ public class WorkflowDataSeeder implements ApplicationRunner {
     private final WorkflowRepository repository;
     public WorkflowDataSeeder(WorkflowRepository repository) { this.repository = repository; }
     @Override public void run(ApplicationArguments args) {
-        if (repository.findAll().isEmpty()) new WorkflowSeedData().findAll().forEach(repository::save);
+        WorkflowSeedData seed = new WorkflowSeedData();
+        if (repository.findAll().isEmpty()) {
+            seed.findAll().forEach(repository::save);
+        } else {
+            seed.findById("wf-weather")
+                    .filter(workflow -> repository.findById(workflow.id()).isEmpty())
+                    .ifPresent(repository::save);
+        }
     }
 }

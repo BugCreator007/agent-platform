@@ -105,6 +105,7 @@ Agent 运行时按智能体绑定的 `providerId + modelId` 选择真实模型�
 - NOTIFY 支持企业微信 Webhook 和通用 HTTP Webhook 真实发送。
 - 人工审批等待与恢复；执行状态、节点输出和条件分支选择持久化。
 - 可选定时触发（`WORKFLOW_SCHEDULER_ENABLED=true`）。
+- 内置示例「上海天气查询」：地址含上海时调用 `weather.query`（wttr.in），否则走模型兜底，汇聚后结束。
 
 ### 运维与发布
 

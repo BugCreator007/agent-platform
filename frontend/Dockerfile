@@ -1,5 +1,6 @@
 FROM node:22-alpine AS build
 WORKDIR /workspace
+ENV NODE_OPTIONS=--max-old-space-size=512
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 COPY . .

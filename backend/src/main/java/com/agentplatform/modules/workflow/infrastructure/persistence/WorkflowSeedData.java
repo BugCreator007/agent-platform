@@ -58,6 +58,21 @@ public class WorkflowSeedData {
                 new WorkflowNode("kb", "KNOWLEDGE", "检索质检规则", "kb-ticket"),
                 new WorkflowNode("model", "MODEL", "五维评分", "Claude Sonnet 5.5"),
                 new WorkflowNode("end", "END", "写回结果", "质检工单"))));
+        store.put("wf-weather", new Workflow("wf-weather", "上海天气查询", "published", "手动触发",
+                0, 0, "顾先路", "v1", "刚刚", List.of(
+                new WorkflowNode("start", "START", "接收地址", "用户提交地址",
+                        Map.of("next", List.of("route"))),
+                new WorkflowNode("route", "CONDITION", "地址是否包含上海", "address.contains('上海')",
+                        Map.of("expression", "address.contains('上海')", "trueNext", "weather", "falseNext", "model")),
+                new WorkflowNode("weather", "TOOL", "查询上海天气", "weather.query",
+                        Map.of("tool", "weather.query", "next", List.of("join"))),
+                new WorkflowNode("model", "MODEL", "模型兜底回答", "非上海地址",
+                        Map.of("systemPrompt", "你是天气助手。用户地址不在上海，请说明当前仅支持上海实时天气查询，并给出可执行的下一步。",
+                                "next", List.of("join"))),
+                new WorkflowNode("join", "JOIN", "汇聚结果", "等待任一路径",
+                        Map.of("next", List.of("end"))),
+                new WorkflowNode("end", "END", "结束", "返回结果",
+                        Map.of()))));
         store.put("wf-ad", new Workflow("wf-ad", "投放素材生成", "draft", "手动触发",
                 0, 0, "周越", "v1", "2 天前", List.of(
                 new WorkflowNode("start", "START", "人工触发", "运营提交 brief"),

@@ -1,0 +1,75 @@
+name: agent-platform
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: agent_platform
+      MYSQL_USER: ${DB_USERNAME:-agent}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?请在 deploy/server/.env 中设置 DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?请在 deploy/server/.env 中设置 DB_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=50
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  agent-backend:
+    build:
+      context: ../../backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      DB_URL: jdbc:mysql://mysql:3306/agent_platform?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
+      DB_USERNAME: ${DB_USERNAME:-agent}
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      STORAGE_LOCAL_ROOT: /data/files
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx512m -XX:+UseG1GC}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend-files:/data/files
+
+  agent-frontend:
+    build:
+      context: ../../frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - agent-backend
+
+volumes:
+  mysql-data:
+  redis-data:
+  backend-files:

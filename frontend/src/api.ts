@@ -344,8 +344,44 @@ export interface Alert {
   detail: string
 }
 
+export interface AgentSessionStat {
+  agentId: string
+  agentName: string
+  sessions: number
+  success: number
+  p95: string
+  tools: number
+}
+
 export interface Overview {
-  kpi: { todaySessions: string; successRate: string; p95: string; cost: string; costDelta: string; sessionsDelta: string }
+  kpi: {
+    todaySessions: string
+    sessionsDelta: string
+    successRate: string
+    successDelta: string
+    p95: string
+    p95Delta: string
+    cost: string
+    costDelta: string
+  }
+  pulse: {
+    runningSessions: number
+    onlineAgents: number
+    errorRate: string
+    p99: string
+    peakRpm: number
+    throughput: number[]
+    throughputLabels: string[]
+  }
+  series: {
+    labels: string[]
+    sessions: number[]
+    tools: number[]
+    success: number[]
+    p95: number[]
+    cost: number[]
+  }
+  snapshot: { generatedAt: string; rangeDays: number }
   agents: Agent[]
   alerts: Alert[]
   releases: Release[]

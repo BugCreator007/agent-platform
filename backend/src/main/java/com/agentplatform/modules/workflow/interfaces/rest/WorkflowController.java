@@ -46,9 +46,12 @@ public class WorkflowController {
 
     @PreAuthorize("hasAnyRole('PLATFORM_ADMIN','DEVELOPER')")
     @PostMapping("/{id}/test")
-    public ApiResponse<Map<String, Object>> test(@PathVariable String id) {
+    public ApiResponse<Map<String, Object>> test(@PathVariable String id,
+                                                 @RequestBody(required = false) Map<String, Object> body) {
         Workflow workflow = applicationService.test(id);
-        var instance = execution.start(id, "{\"test\":true}");
+        String input = body == null ? null : str(body.get("input"));
+        if (input == null || input.isBlank()) input = "{\"test\":true}";
+        var instance = execution.start(id, input);
         return ApiResponse.ok(Map.of("workflow", workflow.name(), "status", instance.status(),
                 "instanceId", instance.id(), "nodes", workflow.nodes().size()));
     }

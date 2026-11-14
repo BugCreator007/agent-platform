@@ -27,7 +27,10 @@ public class ObserveController {
     }
 
     @GetMapping("/overview")
-    public ApiResponse<OverviewResponse> overview() { return ApiResponse.ok(overview.overview()); }
+    public ApiResponse<OverviewResponse> overview(
+            @RequestParam(defaultValue = "7") int range) {
+        return ApiResponse.ok(overview.overview(range));
+    }
 
     @GetMapping("/alerts")
     public ApiResponse<List<Alert>> alerts(@RequestParam(required = false) String status) {

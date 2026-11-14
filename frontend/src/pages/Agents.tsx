@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api, auth,
   type Agent,
+  type AgentSessionStat,
   type Dataset,
   type Document,
   type ModelInfo,
@@ -48,6 +49,11 @@ export function AgentsPage() {
   const [editForm, setEditForm] = useState({ name: '', owner: '', team: '', providerId: '', modelId: '', model: '', prompt: '', tools: [] as string[], kb: [] as string[] })
 
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
+  const agentStats = useQuery({
+    queryKey: ['agent-stats'],
+    queryFn: () => api.get<AgentSessionStat[]>('/sessions/stats?days=1'),
+    refetchInterval: 60000,
+  })
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api.get<Tool[]>('/tools') })
   const datasets = useQuery({ queryKey: ['datasets'], queryFn: () => api.get<Dataset[]>('/datasets') })
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.get<ModelInfo[]>('/models') })
@@ -103,13 +109,25 @@ export function AgentsPage() {
     }
   }, [selected?.id])
 
+  const statsById = useMemo(() => new Map((agentStats.data ?? []).map((s) => [s.agentId, s])), [agentStats.data])
+
+  const enriched = useMemo(() => (agents.data ?? []).map((a) => {
+    const s = statsById.get(a.id)
+    return { ...a, sessions: s?.sessions ?? 0, success: s?.success ?? 0, p95: s?.p95 ?? '—' }
+  }), [agents.data, statsById])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return (agents.data ?? []).filter((a) =>
+    return enriched.filter((a) =>
       (status === 'all' || a.status === status) &&
       (!q || `${a.name}${a.code}${a.owner}${a.team}`.toLowerCase().includes(q)),
     )
-  }, [agents.data, status, query])
+  }, [enriched, status, query])
+
+  const selectedStat = selected ? statsById.get(selected.id) : undefined
+  const selectedSessions = selectedStat?.sessions ?? 0
+  const selectedSuccess = selectedStat?.success ?? 0
+  const selectedP95 = selectedStat?.p95 ?? '—'
 
   const openAgent = (agent: Agent) => {
     setSelected(agent)
@@ -223,9 +241,9 @@ export function AgentsPage() {
               {detailTab === 'overview' && (
                 <>
                   <div className="grid-3" style={{ marginBottom: 14 }}>
-                    <div className="panel stat" style={{ padding: 13 }}><div className="lb">今日会话</div><div className="vl" style={{ fontSize: 24 }}>{selected.sessions.toLocaleString()}</div></div>
-                    <div className="panel stat" style={{ padding: 13 }}><div className="lb">成功率</div><div className="vl" style={{ fontSize: 24 }}>{selected.success}%</div></div>
-                    <div className="panel stat" style={{ padding: 13 }}><div className="lb">P95 首响</div><div className="vl" style={{ fontSize: 24 }}>{selected.p95}</div></div>
+                    <div className="panel stat" style={{ padding: 13 }}><div className="lb">今日会话</div><div className="vl" style={{ fontSize: 24 }}>{selectedSessions.toLocaleString()}</div></div>
+                    <div className="panel stat" style={{ padding: 13 }}><div className="lb">成功率</div><div className="vl" style={{ fontSize: 24 }}>{selectedSessions > 0 ? `${selectedSuccess}%` : '—'}</div></div>
+                    <div className="panel stat" style={{ padding: 13 }}><div className="lb">P95 首响</div><div className="vl" style={{ fontSize: 24 }}>{selectedP95}</div></div>
                   </div>
                   <div className="panel" style={{ boxShadow: 'none' }}>
                     <div className="panel-head"><div><h2 className="panel-title">运行配置</h2></div></div>

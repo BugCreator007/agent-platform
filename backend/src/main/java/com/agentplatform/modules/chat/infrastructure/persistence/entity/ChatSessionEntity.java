@@ -5,6 +5,7 @@ import com.agentplatform.modules.chat.domain.model.TraceStep;
 import com.agentplatform.modules.chat.infrastructure.persistence.TraceStepListConverter;
 import jakarta.persistence.*;
 
+import java.time.Instant;
 import java.util.List;
 
 @Entity
@@ -22,6 +23,7 @@ public class ChatSessionEntity {
     @Column(columnDefinition = "TEXT") private String topic;
     @Convert(converter = TraceStepListConverter.class)
     @Column(name = "trace_json", columnDefinition = "TEXT") private List<TraceStep> trace;
+    @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
 
     public static ChatSessionEntity from(ChatSession s) {
         ChatSessionEntity e = new ChatSessionEntity();
@@ -35,4 +37,12 @@ public class ChatSessionEntity {
         return new ChatSession(id, agentId, agentName, status, turns, tools, tokens, ms,
                 timeLabel, topic, trace == null ? List.of() : trace);
     }
+
+    public String getAgentId() { return agentId; }
+    public String getAgentName() { return agentName; }
+    public String getStatus() { return status; }
+    public int getTools() { return tools; }
+    public int getTokens() { return tokens; }
+    public long getMs() { return ms; }
+    public Instant getCreatedAt() { return createdAt; }
 }

@@ -49,6 +49,19 @@ const TEMPLATES: Record<string, { name: string; desc: string; trigger: string; n
       { key: 't6', type: 'notify', title: '回复用户', meta: '企微 + 工单' },
     ],
   },
+  weather: {
+    name: '上海天气查询',
+    desc: '地址含上海调用天气接口，否则由模型回答，最后汇聚结果',
+    trigger: '手动触发',
+    nodes: [
+      { key: 'w1', type: 'trigger', title: '接收地址', meta: '', config: { next: ['w2'] } },
+      { key: 'w2', type: 'condition', title: '地址是否包含上海', meta: "address.contains('上海')", config: { expression: "address.contains('上海')", trueNext: 'w3', falseNext: 'w4' } },
+      { key: 'w3', type: 'tool', title: '查询上海天气', meta: 'weather.query', config: { tool: 'weather.query', next: ['w5'] } },
+      { key: 'w4', type: 'model', title: '模型兜底回答', meta: '非上海地址', config: { next: ['w5'] } },
+      { key: 'w5', type: 'join', title: '汇聚结果', meta: '', config: { next: ['w6'] } },
+      { key: 'w6', type: 'end', title: '结束', meta: '' },
+    ],
+  },
   report: {
     name: '商家经营周报',
     desc: '每周一拉取经营数据，生成周报并发送',
@@ -280,6 +293,8 @@ function WorkflowEditor({
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const [running, setRunning] = useState(false)
+  const [testOpen, setTestOpen] = useState(false)
+  const [testInput, setTestInput] = useState('{\n  "address": "上海浦东"\n}')
   const [log, setLog] = useState<string[]>([])
   const dragRef = useRef<{ key: string; startX: number; startY: number; x: number; y: number } | null>(null)
 
@@ -365,11 +380,12 @@ function WorkflowEditor({
       .catch(() => toast('已保存到本地草稿'))
   }
 
-  const testRun = async () => {
+  const testRun = async (inputJson: string) => {
     setRunning(true)
+    setTestOpen(false)
     setLog(['启动真实测试实例…'])
     try {
-      const started = await api.post<{ instanceId: string; workflow: string }>(`/workflows/${workflow.id}/test`)
+      const started = await api.post<{ instanceId: string; workflow: string }>(`/workflows/${workflow.id}/test`, { input: inputJson })
       setLog([`测试实例 ${started.instanceId} 已启动，等待执行…`])
       let attempts = 0
       const poll = async () => {
@@ -387,7 +403,7 @@ function WorkflowEditor({
           }
           if (status.startsWith('WAITING_')) {
             setRunning(false)
-            toast(`测试运行进入等待态：${status}`, 'err')
+            toast(`测试运行等待中：${status}，可在运行实例中继续`)
             return
           }
           if (attempts < 100) window.setTimeout(poll, 800)
@@ -428,7 +444,7 @@ function WorkflowEditor({
         <div className="fe-actions">
           <Button size="sm" onClick={() => setVersionsOpen(true)}><Icon name="git" />版本 {version}</Button>
           <Button size="sm" onClick={save}><Icon name="check" />保存草稿</Button>
-          <Button size="sm" onClick={testRun} disabled={running}><Icon name="play" />{running ? '运行中…' : '运行测试'}</Button>
+          <Button size="sm" onClick={() => setTestOpen(true)} disabled={running}><Icon name="play" />{running ? '运行中…' : '运行测试'}</Button>
           <Button size="sm" kind="primary" onClick={() => setPublishOpen(true)}><Icon name="releases" />发布流程</Button>
         </div>
       </header>
@@ -561,6 +577,11 @@ function WorkflowEditor({
           )}
         </aside>
       </div>
+
+      <Modal open={testOpen} onClose={() => setTestOpen(false)} title={`测试运行 · ${workflow.name}`} sub="输入会作为实例 input，可用于条件表达式和工具参数" footer={<><span className="spacer" /><Button onClick={() => setTestOpen(false)}>取消</Button><Button kind="primary" onClick={() => testRun(testInput)} disabled={running}>开始测试</Button></>}>
+        <div className="field"><label>测试输入 JSON</label><textarea className="input" rows={5} value={testInput} onChange={(e) => setTestInput(e.target.value)} /><div className="hint">例如天气流程输入 {'{"address":"上海浦东"}'}，条件可写 address.contains('上海')。</div></div>
+        <div className="callout info"><Icon name="help" /><div>测试会创建真实运行实例，调用真实模型、工具和通知；可能会产生外部副作用。</div></div>
+      </Modal>
 
       <Modal open={publishOpen} onClose={() => setPublishOpen(false)} title={`发布流程 · ${workflow.name}`} sub={`${version} → v${parseInt(version.slice(1), 10) + 1} · 发布后立即生效`} footer={<><span className="spacer" /><Button onClick={() => setPublishOpen(false)}>取消</Button><Button kind="primary" onClick={publish}><Icon name="releases" />确认发布</Button></>}>
         <div className="callout good"><Icon name="check-circle" /><div>发布门禁检查通过：节点配置完整，测试运行成功，无循环依赖。</div></div>

@@ -12,6 +12,13 @@ public class ToolDataSeeder implements ApplicationRunner {
     private final ToolRepository repository;
     public ToolDataSeeder(ToolRepository repository) { this.repository = repository; }
     @Override public void run(ApplicationArguments args) {
-        if (repository.findAll().isEmpty()) new ToolSeedData().findAll().forEach(repository::save);
+        ToolSeedData seed = new ToolSeedData();
+        if (repository.findAll().isEmpty()) {
+            seed.findAll().forEach(repository::save);
+        } else {
+            seed.findByName("weather.query")
+                    .filter(tool -> repository.findByName(tool.name()).isEmpty())
+                    .ifPresent(repository::save);
+        }
     }
 }
