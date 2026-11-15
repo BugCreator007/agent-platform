@@ -223,8 +223,29 @@ git push origin HEAD
 - 推送结果写入最终回复：分支名、commit hash、远端是否成功。
 
 ## 创建 PR
-
+用户明确说"推送"才执行，且：  git push -u origin HEAD        # 只推当前分支，不指定 force
 用户要求或任务包含 PR 时：
+```markdown
+## 变更内容
+- 修复支付回调延迟导致误关单
+
+## 为什么
+超时关单未校验 pay_time，高峰期回调延迟 2 分钟会撞上关单窗口。
+
+## 影响面
+- 服务：order-center
+- 接口：无变更（内部逻辑）
+- 数据：新增 1 个索引；有 1 个存量数据清理脚本需手工执行
+
+## 验证
+- [x] 单测：OrderAppServiceTest 覆盖回调重复与延迟两种场景
+- [x] 测试环境：模拟回调延迟 35 分钟，订单未被关闭
+- [ ] 灰度：先灰 2 个店铺观察 1 天
+
+## 回滚
+代码：revert 本 MR
+数据：索引可保留（无副作用）；脏数据脚本无需回滚
+```
 
 ```bash
 gh pr create --base main --head "$(git branch --show-current)" \
