@@ -216,58 +216,70 @@ git log --oneline @{u}..HEAD   # 确认将要推送的提交
 git push origin HEAD
 ```
 
-- 只在用户要求推送、或任务明确包含推送时执行。
+- 只在用户要求推送、或任务明确包含推送时执行；明确说“推送”才推。
+- 只推当前分支：首次可用 `git push -u origin HEAD` 绑定上游，之后用 `git push origin HEAD`；不指定 force。
 - 推送前确认分支不是 `main`；需要推送 `main` 时先征得用户同意。
 - 禁止 `git push --force` / `--force-with-lease` 到共享分支。
 - 远端有新提交时：工作区干净才 `git pull --rebase origin <branch>`；有冲突按下方流程解决并重跑验证。
 - 推送结果写入最终回复：分支名、commit hash、远端是否成功。
 
 ## 创建 PR
-用户明确说"推送"才执行，且：  git push -u origin HEAD        # 只推当前分支，不指定 force
-用户要求或任务包含 PR 时：
+
+- 仅在用户要求或任务包含 PR 时创建；创建前先推送分支。
+- 标题与提交标题一致：`<type>(scope): subject`。
+- 正文按下面模板写，中文、可独立阅读，必须包含影响面、验证和回滚。
+
 ```markdown
 ## 变更内容
-- 修复支付回调延迟导致误关单
+
+- 对话命中知识库时，在回答末尾返回文档链接；智能体可逐库勾选是否返回。
 
 ## 为什么
-超时关单未校验 pay_time，高峰期回调延迟 2 分钟会撞上关单窗口。
+
+知识库回答需要可追溯来源；链接返回做成可配置，避免无关文档打扰对话。
 
 ## 影响面
-- 服务：order-center
-- 接口：无变更（内部逻辑）
-- 数据：新增 1 个索引；有 1 个存量数据清理脚本需手工执行
+
+- 模块：agent / chat / knowledge
+- 接口：新增 `GET /api/v1/documents/{id}/download`；SSE `done` 新增 `citations`
+- 数据：Flyway V10 新增 `agents.citation_kb` 与 `session_messages.citations_json`，并按 `kb` 回填
 
 ## 验证
-- [x] 单测：OrderAppServiceTest 覆盖回调重复与延迟两种场景
-- [x] 测试环境：模拟回调延迟 35 分钟，订单未被关闭
-- [ ] 灰度：先灰 2 个店铺观察 1 天
+
+- [x] `mvn test`
+- [x] `admin-web` / `user-web` `npm run build`
+- [x] 真实 DeepSeek 对话：SSE、会话历史、下载接口、引用开关关闭场景
 
 ## 回滚
-代码：revert 本 MR
-数据：索引可保留（无副作用）；脏数据脚本无需回滚
+
+代码：revert 本 PR。数据：V10 新增列可保留，旧代码不读取；不删除已保存的引用记录。
 ```
 
 ```bash
 gh pr create --base main --head "$(git branch --show-current)" \
   --title "<type>(scope): subject" \
   --body "$(cat <<'EOF'
-## 改动
+## 变更内容
 
-- 中文要点。
+- 中文要点：做了什么。
+
+## 为什么
+
+- 动机与问题背景。
+
+## 影响面
+
+- 模块 / 接口 / 数据迁移。
 
 ## 验证
 
 - `mvn test`
 - `npm run build`（admin-web / user-web）
-- 关键接口/SSE 实测结果。
+- 关键接口 / SSE 实测结果。
 
-## 迁移与回滚
+## 回滚
 
-- 迁移版本与内容；回滚方式或“无迁移”。
-
-## 风险
-
-- 未验证项、灰度/上线注意事项。
+- 代码：revert；数据：迁移是否可保留。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
