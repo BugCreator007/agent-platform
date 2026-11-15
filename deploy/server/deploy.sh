@@ -32,14 +32,16 @@ echo "==> 同步代码到 $SERVER:$REMOTE_DIR"
 rsync -az --delete -e "$RSYNC_SSH" \
   --exclude '.git' --exclude '.idea' --exclude '.claude' --exclude '/.env' \
   --exclude 'backend/target' --exclude 'backend/data' \
-  --exclude 'frontend/node_modules' --exclude 'frontend/dist' \
-  --exclude 'frontend/.vite' --exclude '.DS_Store' --exclude '*.log' \
+  --exclude 'admin-web/node_modules' --exclude 'admin-web/dist' \
+  --exclude 'admin-web/.vite' \
+  --exclude 'user-web/node_modules' --exclude 'user-web/dist' \
+  --exclude 'user-web/.vite' --exclude '.DS_Store' --exclude '*.log' \
   --exclude 'data' \
   "$ROOT/" "$SERVER:$REMOTE_DIR/"
 
 echo "==> 远端构建并启动"
 # 低配机器按顺序构建，避免 Maven/npm 同时占用内存
-"${SSH[@]}" "$SERVER" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE build agent-backend && docker compose -f $COMPOSE build agent-frontend && docker compose -f $COMPOSE up -d"
+"${SSH[@]}" "$SERVER" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE build agent-backend && docker compose -f $COMPOSE build agent-frontend && docker compose -f $COMPOSE build user-web && docker compose -f $COMPOSE up -d"
 
 echo "==> 等待后端就绪"
 for i in $(seq 1 60); do

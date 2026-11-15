@@ -1,10 +1,13 @@
 backend/target/
 backend/data/
-frontend/node_modules/
-frontend/dist/
+admin-web/node_modules/
+admin-web/dist/
 .env
 *.log
 .DS_Store
 .idea/
 *.iml
-frontend/.vite/
+admin-web/.vite/
+user-web/node_modules/
+user-web/dist/
+user-web/.vite/

@@ -1,36 +1,39 @@
 package com.agentplatform.modules.knowledge.infrastructure.persistence.entity;
 
-import com.agentplatform.common.persistence.StringListConverter;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.common.persistence.StringListTypeHandler;
+
 import com.agentplatform.modules.knowledge.domain.model.Dataset;
-import jakarta.persistence.*;
 
 import java.util.List;
 
-@Entity
-@Table(name = "datasets")
+@TableName(value = "datasets", autoResultMap = true)
 public class DatasetEntity {
-    @Id private String id;
+    @TableId(type = IdType.INPUT) private String id;
     private String name;
     private String owner;
-    @Column(columnDefinition = "TEXT") private String description;
-    @Column(name = "embedding_model") private String embeddingModel;
-    @Column(name = "index_type") private String indexType;
+    private String description;
+    @TableField(value = "embedding_model") private String embeddingModel;
+    @TableField(value = "index_type") private String indexType;
     private String metric;
     private String parser;
-    @Column(name = "chunk_strategy") private String chunkStrategy;
-    @Column(name = "chunk_size") private int chunkSize;
+    @TableField(value = "chunk_strategy") private String chunkStrategy;
+    @TableField(value = "chunk_size") private int chunkSize;
     private int overlap;
-    @Column(name = "retrieval_mode") private String retrievalMode;
-    @Column(name = "top_k") private int topK;
+    @TableField(value = "retrieval_mode") private String retrievalMode;
+    @TableField(value = "top_k") private int topK;
     private double threshold;
     private boolean rerank;
-    @Column(name = "needs_reindex") private boolean needsReindex;
+    @TableField(value = "needs_reindex") private boolean needsReindex;
     private String status;
     private long docs;
     private long chunks;
     private String updated;
-    @Convert(converter = StringListConverter.class)
-    @Column(name = "auth_agents", columnDefinition = "TEXT") private List<String> authAgents;
+    @TableField(value = "auth_agents", typeHandler = StringListTypeHandler.class) private List<String> authAgents;
 
     public static DatasetEntity from(Dataset d) {
         DatasetEntity e = new DatasetEntity();

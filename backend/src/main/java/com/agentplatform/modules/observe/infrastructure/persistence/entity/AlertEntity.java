@@ -1,21 +1,25 @@
 package com.agentplatform.modules.observe.infrastructure.persistence.entity;
 
-import com.agentplatform.modules.observe.domain.model.Alert;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
-@Entity
-@Table(name = "alerts")
+import com.agentplatform.modules.observe.domain.model.Alert;
+
+@TableName(value = "alerts", autoResultMap = true)
 public class AlertEntity {
-    @Id private String id;
+    @TableId(type = IdType.INPUT) private String id;
     private String severity;
     private String title;
-    @Column(name = "rule_label") private String ruleLabel;
+    @TableField(value = "rule_label") private String ruleLabel;
     private String target;
-    @Column(name = "time_label") private String timeLabel;
+    @TableField(value = "time_label") private String timeLabel;
     private String ago;
     private String status;
     private String metric;
-    @Column(columnDefinition = "TEXT") private String detail;
+    private String detail;
     public static AlertEntity from(Alert a) {
         AlertEntity e = new AlertEntity(); e.id=a.id(); e.severity=a.severity(); e.title=a.title(); e.ruleLabel=a.rule();
         e.target=a.target(); e.timeLabel=a.time(); e.ago=a.ago(); e.status=a.status(); e.metric=a.metric(); e.detail=a.detail(); return e;

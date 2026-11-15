@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.system.infrastructure.persistence.mapper.UserMapper">
+  <resultMap id="BaseResultMap" type="com.agentplatform.modules.system.infrastructure.persistence.entity.UserEntity" autoMapping="true">
+    <id column="id" property="id"/>
+    <result column="roles" property="roles" typeHandler="com.agentplatform.common.persistence.StringListTypeHandler"/>
+  </resultMap>
+  <select id="findByUsername" resultMap="BaseResultMap">
+    select * from users where username = #{username}
+  </select>
+</mapper>

@@ -1,20 +1,24 @@
 package com.agentplatform.modules.tool.infrastructure.persistence.entity;
 
-import com.agentplatform.modules.tool.domain.model.Tool;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
-@Entity
-@Table(name = "tools")
+import com.agentplatform.modules.tool.domain.model.Tool;
+
+@TableName(value = "tools", autoResultMap = true)
 public class ToolEntity {
-    @Id private String name;
+    @TableId(type = IdType.INPUT) private String name;
     private String type;
     private String owner;
     private long calls;
-    @Column(name = "error_rate") private double errorRate;
+    @TableField(value = "error_rate") private double errorRate;
     private String health;
     private String checked;
     private boolean enabled;
-    @Column(columnDefinition = "TEXT") private String description;
+    private String description;
     private String endpoint;
     public static ToolEntity from(Tool t) {
         ToolEntity e = new ToolEntity(); e.name=t.name(); e.type=t.type(); e.owner=t.owner(); e.calls=t.calls();

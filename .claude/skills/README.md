@@ -9,7 +9,7 @@
 | [backend-feature-delivery](backend-feature-delivery/SKILL.md) | 端到端交付一个后端功能 |
 | [backend-ddd-module](backend-ddd-module/SKILL.md) | 新增/重构 DDD 模块和四层结构 |
 | [backend-domain-model](backend-domain-model/SKILL.md) | 聚合、状态机、值对象、仓储端口 |
-| [backend-persistence](backend-persistence/SKILL.md) | Flyway、JPA Entity、仓储适配器 |
+| [backend-persistence](backend-persistence/SKILL.md) | Flyway、MyBatis-Plus Entity、Mapper 适配器 |
 | [backend-api-endpoint](backend-api-endpoint/SKILL.md) | 新增/修改 REST 接口、DTO、权限、OpenAPI |
 | [backend-security](backend-security/SKILL.md) | JWT/OIDC、RBAC、审计、Redis 限流 |
 | [backend-agent-runtime](backend-agent-runtime/SKILL.md) | DeepSeek SSE、提示词、RAG/工具上下文、会话消息 |
@@ -31,7 +31,7 @@
 
 - Java 21 / Spring Boot 3.5 / Spring Modulith。
 - 单 Maven 模块，包内 DDD 分层。
-- MySQL + Flyway + JPA；测试用 H2 MySQL 模式。
+- MySQL + Flyway + MyBatis-Plus；测试用 H2 MySQL 模式。
 - JWT/OIDC + RBAC + Redis 限流/黑名单 + 审计。
 - DeepSeek SSE + RAG + Milvus/ES + 工作流执行器。
 - 前端 React 19 + TypeScript + Vite。
@@ -40,7 +40,7 @@
 
 ```bash
 cd backend && mvn test
-cd frontend && npm run build
+cd admin-web && npm run build
 ```
 
 Skills 不是替代测试：任何改动仍以真实构建、接口和页面验证为准。

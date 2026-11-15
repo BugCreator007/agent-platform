@@ -1,31 +1,33 @@
 package com.agentplatform.modules.agent.infrastructure.persistence.entity;
 
-import com.agentplatform.common.persistence.StringListConverter;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.common.persistence.StringListTypeHandler;
+
 import com.agentplatform.modules.agent.domain.model.Agent;
 import com.agentplatform.modules.agent.domain.model.AgentStatus;
-import jakarta.persistence.*;
 
 import java.util.List;
 
-@Entity
-@Table(name = "agents")
+@TableName(value = "agents", autoResultMap = true)
 public class AgentEntity {
-    @Id private String id;
-    @Column(nullable = false, unique = true) private String code;
-    @Column(nullable = false) private String name;
-    @Column(nullable = false) private String status;
-    @Column(nullable = false) private String version;
+    @TableId(type = IdType.INPUT) private String id;
+    private String code;
+    private String name;
+    private String status;
+    private String version;
     private String model;
-    @Column(name = "provider_id") private String providerId;
-    @Column(name = "model_id") private String modelId;
+    @TableField(value = "provider_id") private String providerId;
+    @TableField(value = "model_id") private String modelId;
     private String owner;
     private String team;
-    @Column(name = "release_status") private String releaseStatus;
-    @Column(columnDefinition = "TEXT") private String prompt;
-    @Convert(converter = StringListConverter.class)
-    @Column(columnDefinition = "TEXT") private List<String> tools;
-    @Convert(converter = StringListConverter.class)
-    @Column(columnDefinition = "TEXT") private List<String> kb;
+    @TableField(value = "release_status") private String releaseStatus;
+    private String prompt;
+    @TableField(typeHandler = StringListTypeHandler.class) private List<String> tools;
+    @TableField(typeHandler = StringListTypeHandler.class) private List<String> kb;
     private long sessions;
     private double success;
     private String p95;

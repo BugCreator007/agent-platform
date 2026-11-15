@@ -30,7 +30,7 @@ CLB / WAF
 docker build -t ccr.ccs.tencentyun.com/agent-platform/backend:latest backend
 
 # 前端
-docker build -t ccr.ccs.tencentyun.com/agent-platform/frontend:latest frontend
+docker build -t ccr.ccs.tencentyun.com/agent-platform/frontend:latest admin-web
 
 docker push ccr.ccs.tencentyun.com/agent-platform/backend:latest
 docker push ccr.ccs.tencentyun.com/agent-platform/frontend:latest

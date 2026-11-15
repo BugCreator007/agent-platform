@@ -1,6 +1,6 @@
 ---
 name: backend-persistence
-description: 为 Agent Platform 后端新增或修改 MySQL/JPA 持久化时使用；覆盖 Flyway 迁移、Entity、Spring Data、JPA 适配器、事务与种子数据。
+description: 为 Agent Platform 后端新增或修改 MySQL/MyBatis-Plus 持久化时使用；覆盖 Flyway 迁移、Entity、Mapper、XML、Repository、事务与种子数据。
 ---
 
 # 后端持久化开发
@@ -8,13 +8,13 @@ description: 为 Agent Platform 后端新增或修改 MySQL/JPA 持久化时使�
 ## 先读
 
 - `backend/src/main/resources/db/migration/`：现有 V1–V4。
-- `backend/src/main/resources/application.yml`：MySQL、JPA validate、Flyway。
+- `backend/src/main/resources/application.yml`：MySQL、MyBatis-Plus、Flyway。
 - 目标模块的 `domain/repository`、`infrastructure/persistence`。
 
 ## 关键原则
 
 - 默认数据库是 MySQL 8；测试使用 H2 MySQL 模式。
-- `spring.jpa.hibernate.ddl-auto=validate`，表结构只能由 Flyway 建。
+- 不再使用 Hibernate DDL 校验：表结构只由 Flyway 建，Entity 的 `@TableName`/`@TableField` 必须与迁移一致。
 - 运行时不得使用内存仓储；`*SeedData` 只用于首次启动初始化。
 - 已应用的迁移文件不要修改，新增 `V{n}__description.sql`。
 
@@ -28,10 +28,10 @@ ALTER TABLE agents ADD COLUMN model_id VARCHAR(128);
 CREATE INDEX idx_agents_provider ON agents (provider_id);
 ```
 
-2. 更新 JPA Entity（字段访问模式）：
+2. 更新 MyBatis-Plus Entity（字段访问模式）：
 
 ```java
-@Column(name = "provider_id")
+@TableField("provider_id")
 private String providerId;
 ```
 
@@ -52,24 +52,34 @@ public interface XRepository {
 }
 ```
 
-基础设施适配器：
+基础设施分层：
 
 ```java
+// persistence/repository/XRepository.java：包装 Mapper
+@Repository
+public class XRepository {
+    private final XMapper mapper;
+    public List<XEntity> findAll() { return mapper.selectList(null); }
+    ...
+}
+
+// 多表端口适配器聚合多个 Repository
 @Primary
 @Repository
-public class JpaXRepository implements XRepository {
-    private final XJpaRepository jpa;
+public class MybatisXRepository implements XRepository {
+    private final ARowRepository rows;
     ...
 }
 ```
 
-- Spring Data 接口只放在 infrastructure。
-- 删除操作如果是 derived delete，服务层或适配器要加 `@Transactional`，否则会出现 `TransactionRequiredException`。
-- 多表写入要明确事务边界。
+- 命名：`XEntity`、`XMapper`、`XMapper.xml`、`XRepository`，按实体名统一。
+- Mapper 放 `persistence/mapper`，XML 放 `resources/mapper`，Repository 放 `persistence/repository`。
+- 自定义 SQL 写在 XML；单表 CRUD 用 BaseMapper。
+- 写操作涉及多表时在适配器或应用服务加 `@Transactional`。
 
 ## 列表字段
 
-短字符串列表可使用 `StringListConverter`；复杂对象（TraceStep、WorkflowNode）使用模块内 JSON Converter。不要为了省事在实体里存不可查询的整段 JSON，除非明确是快照字段。
+短字符串列表使用 `StringListTypeHandler`；复杂对象（TraceStep、WorkflowNode）使用模块内 JSON TypeHandler。实体必须加 `@TableName(autoResultMap = true)`，否则查询时 TypeHandler 不生效。
 
 ## 种子数据
 

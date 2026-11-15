@@ -1,29 +1,32 @@
 package com.agentplatform.modules.chat.infrastructure.persistence.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.modules.chat.infrastructure.persistence.TraceStepListTypeHandler;
+
 import com.agentplatform.modules.chat.domain.model.ChatSession;
 import com.agentplatform.modules.chat.domain.model.TraceStep;
-import com.agentplatform.modules.chat.infrastructure.persistence.TraceStepListConverter;
-import jakarta.persistence.*;
 
 import java.time.Instant;
 import java.util.List;
 
-@Entity
-@Table(name = "chat_sessions")
+@TableName(value = "chat_sessions", autoResultMap = true)
 public class ChatSessionEntity {
-    @Id private String id;
-    @Column(name = "agent_id") private String agentId;
-    @Column(name = "agent_name") private String agentName;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "agent_id") private String agentId;
+    @TableField(value = "agent_name") private String agentName;
     private String status;
     private int turns;
     private int tools;
     private int tokens;
     private long ms;
-    @Column(name = "time_label") private String timeLabel;
-    @Column(columnDefinition = "TEXT") private String topic;
-    @Convert(converter = TraceStepListConverter.class)
-    @Column(name = "trace_json", columnDefinition = "TEXT") private List<TraceStep> trace;
-    @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
+    @TableField(value = "time_label") private String timeLabel;
+    private String topic;
+    @TableField(value = "trace_json", typeHandler = TraceStepListTypeHandler.class) private List<TraceStep> trace;
+    @TableField(value = "created_at", insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER) private Instant createdAt;
 
     public static ChatSessionEntity from(ChatSession s) {
         ChatSessionEntity e = new ChatSessionEntity();

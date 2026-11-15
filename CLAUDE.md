@@ -5,8 +5,9 @@
 Agent 平台管理后台，前后端分离：
 
 - 后端：Java 21 / Spring Boot 3.5 / Spring Modulith，单 Maven 模块，包内 DDD 四层。
-- 前端：React 19 / TypeScript / Vite。
-- 数据：MySQL 8 + Flyway + JPA；测试使用 H2 MySQL 模式。
+- 管理后台前端：`admin-web`，React 19 / TypeScript / Vite。
+- 用户端：`user-web`，React 19 / TypeScript / Vite，调用 `/api/v1/user/*` 门户接口（智能体目录 + SSE 流式对话）。
+- 数据：MySQL 8 + Flyway + MyBatis-Plus；测试使用 H2 MySQL 模式。
 - 运行时：多模型路由（OpenAI-compatible + Anthropic）、SSE、RAG、Milvus/Elasticsearch、持久化工作流。
 - 部署：Docker Compose、TKE 清单、腾讯云中间件配置。
 
@@ -26,7 +27,11 @@ cd ..
 ./scripts/run-backend.sh
 
 # 前端构建
-cd frontend
+cd admin-web
+npm run build
+
+# 用户端构建
+cd ../user-web
 npm run build
 
 # 本地完整基础设施
@@ -79,8 +84,9 @@ docker compose -f deploy/docker-compose.yml up -d
 - 写接口必须加 `@PreAuthorize`；敏感操作只给 `PLATFORM_ADMIN`。
 - 写操作由 `AuditLogFilter` 审计；不要记录密码、Token、Cookie、完整提示词。
 - 跨模块只依赖 `application/query` 或 `application/service`，并加 `@NamedInterface`；domain/infrastructure 不跨模块暴露。
-- 新增字段/构造器时保留兼容重载，避免破坏 JPA 映射和种子数据。
-- 前端接口契约变更时同步 `frontend/src/api.ts` 和对应页面。
+- 新增字段/构造器时保留兼容结构，并同步 MyBatis-Plus `@TableField`/TypeHandler 映射，避免破坏种子数据。
+- 持久化目录约定：`persistence/entity` 放 `*Entity`，`persistence/mapper` 放 `*Mapper`，`persistence/repository` 放 `*Repository`；XML 放 `resources/mapper/<Entity>Mapper.xml`。Repository 包装 Mapper，多表端口适配器聚合多个 Repository。
+- 前端接口契约变更时同步 `admin-web/src/api.ts` 和对应页面。
 - 不把真实密钥、`.env`、API Key、Cookie 写进代码或提交。
 - 任何改动至少验证：`mvn test`、`npm run build`，以及关键接口 401/403/200。
 

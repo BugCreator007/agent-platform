@@ -1,18 +1,21 @@
 package com.agentplatform.modules.knowledge.infrastructure.persistence.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
-@Entity
-@Table(name = "document_chunks")
+@TableName(value = "document_chunks", autoResultMap = true)
 public class DocumentChunkEntity {
-    @Id private String id;
-    @Column(name = "document_id") private String documentId;
-    @Column(name = "dataset_id") private String datasetId;
-    @Column(name = "chunk_index") private int chunkIndex;
-    @Column(columnDefinition = "TEXT") private String content;
-    @Column(name = "token_count") private int tokenCount;
-    @Column(name = "embedding_json", columnDefinition = "LONGTEXT") private String embeddingJson;
-    @Column(name = "metadata_json", columnDefinition = "TEXT") private String metadataJson;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "document_id") private String documentId;
+    @TableField(value = "dataset_id") private String datasetId;
+    @TableField(value = "chunk_index") private int chunkIndex;
+    private String content;
+    @TableField(value = "token_count") private int tokenCount;
+    @TableField(value = "embedding_json") private String embeddingJson;
+    @TableField(value = "metadata_json") private String metadataJson;
 
     public DocumentChunkEntity() {}
     public DocumentChunkEntity(String id, String documentId, String datasetId, int chunkIndex,

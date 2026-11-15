@@ -11,7 +11,7 @@ description: 修改 Agent Platform 后端认证、JWT/OIDC、RBAC、审计、密
 - `modules/system/application/auth/AuthService.java`
 - `modules/system/infrastructure/security/AuditLogFilter.java`
 - `framework/security/{TokenBlacklistService,LoginRateLimiter,JwtBlacklistValidator}.java`
-- `frontend/src/App.tsx`、`frontend/src/api.ts`
+- `admin-web/src/App.tsx`、`admin-web/src/api.ts`
 
 ## 认证
 

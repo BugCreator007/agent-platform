@@ -1,6 +1,6 @@
 ---
 name: backend-ddd-module
-description: 在 Agent Platform 后端新增或重构一个 DDD 限界上下文时使用；负责模块目录、package-info、四层依赖、Modulith 边界和 JPA 适配器落地。
+description: 在 Agent Platform 后端新增或重构一个 DDD 限界上下文时使用；负责模块目录、package-info、四层依赖、Modulith 边界和 MyBatis-Plus 适配器落地。
 ---
 
 # 后端 DDD 模块开发
@@ -28,11 +28,12 @@ modules/<module>/
 │   └── repository/<X>Repository.java
 └── infrastructure/
     ├── persistence/
-    │   ├── <X>JpaRepository.java
-    │   ├── Jpa<X>Repository.java
     │   ├── entity/<X>Entity.java
+    │   ├── mapper/<X>Mapper.java
+    │   ├── repository/<X>Repository.java
     │   └── <X>SeedData.java
     ├── ai/ web/ storage/ ...
+(自定义 SQL 放 backend/src/main/resources/mapper/<X>Mapper.xml)
 ```
 
 依赖方向：
@@ -44,10 +45,10 @@ infrastructure → domain（实现端口）
 
 禁止：
 
-- `domain` 依赖 Spring、JPA、WebClient、Redis。
+- `domain` 依赖 Spring、MyBatis-Plus、WebClient、Redis。
 - `interfaces` 依赖 `infrastructure`。
 - 跨模块直接 import 其他模块的 `domain` 或 `infrastructure`。
-- 把业务逻辑写进 Controller 或 JPA Entity。
+- 把业务逻辑写进 Controller 或 MyBatis-Plus Entity。
 
 ## 新增模块步骤
 
@@ -59,16 +60,22 @@ package com.agentplatform.modules.<module>;
 ```
 
 2. 先定义 domain 聚合与 repository 端口，不引入框架注解。
-3. 在 infrastructure 建 JPA Entity、Spring Data 接口和适配器：
+3. 在 infrastructure 建 Entity、Mapper、Repository；自定义 SQL 放 XML：
 
 ```java
-@Primary
+@TableName(value = "x", autoResultMap = true)
+public class XEntity { ... }              // persistence/entity
+
+public interface XMapper extends BaseMapper<XEntity> { }  // persistence/mapper
+
 @Repository
-public class JpaXRepository implements XRepository {
-    private final XJpaRepository jpa;
+public class XRepository {                 // persistence/repository
+    private final XMapper mapper;
     ...
 }
 ```
+
+多表端口（如知识库）由端口适配器聚合多个单表 Repository。
 
 4. 增加 Flyway 迁移，见 `backend-persistence` skill。
 5. 增加 application service、DTO、Controller。
@@ -97,4 +104,4 @@ Modulith 会验证模块依赖；出现 `non-exposed type` 时，优先调整依
 - 聚合：`Agent`、`Dataset`、`WorkflowInstance`。
 - 查询模型：`AgentSummary`、`DatasetSummary`。
 - 应用服务：`AgentApplicationService`、`WorkflowExecutionService`。
-- 仓储端口：`AgentRepository`；JPA 适配器：`JpaAgentRepository`。
+- 仓储端口：`AgentRepository`（domain）；单表仓储：`AgentRepository`（infrastructure，包装 `AgentMapper`）；自定义 SQL：`AgentMapper.xml`。

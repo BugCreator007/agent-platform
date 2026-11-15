@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.chat.infrastructure.persistence.mapper.SessionMessageMapper">
+  <select id="findBySessionIdOrderByCreatedAtAsc" resultType="com.agentplatform.modules.chat.infrastructure.persistence.entity.SessionMessageEntity">
+    select * from session_messages where session_id = #{sessionId} order by created_at asc
+  </select>
+
+  <delete id="deleteBySessionId">
+    delete from session_messages where session_id = #{sessionId}
+  </delete>
+</mapper>

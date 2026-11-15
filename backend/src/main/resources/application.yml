@@ -14,15 +14,6 @@ spring:
       maximum-pool-size: ${DB_POOL_SIZE:20}
       minimum-idle: 2
       connection-timeout: 10000
-  jpa:
-    open-in-view: false
-    hibernate:
-      ddl-auto: validate
-    properties:
-      hibernate:
-        jdbc:
-          time_zone: Asia/Shanghai
-        format_sql: false
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -40,6 +31,16 @@ spring:
   jackson:
     visibility:
       field: any
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: input
+      update-strategy: always
 
 management:
   endpoints:

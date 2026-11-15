@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.tool.infrastructure.persistence.mapper.McpToolMapper">
+  <select id="findByServerId" resultType="com.agentplatform.modules.tool.infrastructure.persistence.entity.McpToolEntity">
+    select * from mcp_tools where server_id = #{serverId}
+  </select>
+
+  <select id="findByToolKeyIn" resultType="com.agentplatform.modules.tool.infrastructure.persistence.entity.McpToolEntity">
+    select * from mcp_tools where tool_key in
+    <foreach collection="keys" item="key" open="(" separator="," close=")">#{key}</foreach>
+  </select>
+
+  <select id="findByToolKey" resultType="com.agentplatform.modules.tool.infrastructure.persistence.entity.McpToolEntity">
+    select * from mcp_tools where tool_key = #{toolKey} limit 1
+  </select>
+
+  <delete id="deleteByServerId">
+    delete from mcp_tools where server_id = #{serverId}
+  </delete>
+</mapper>

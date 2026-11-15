@@ -1,25 +1,29 @@
 package com.agentplatform.modules.tool.infrastructure.persistence.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import com.agentplatform.framework.security.SecretCipher;
 import com.agentplatform.modules.tool.domain.model.McpServer;
-import jakarta.persistence.*;
 
 import java.time.Instant;
 
-@Entity
-@Table(name = "mcp_servers")
+@TableName(value = "mcp_servers", autoResultMap = true)
 public class McpServerEntity {
-    @Id private String id;
+    @TableId(type = IdType.INPUT) private String id;
     private String name;
     private String transport;
-    @Column(columnDefinition = "TEXT") private String url;
+    private String url;
     private String command;
-    @Column(columnDefinition = "TEXT") private String args;
-    @Column(name = "auth_type") private String authType;
-    @Column(name = "secret_encrypted", columnDefinition = "TEXT") private String secretEncrypted;
+    private String args;
+    @TableField(value = "auth_type") private String authType;
+    @TableField(value = "secret_encrypted") private String secretEncrypted;
     private String status;
-    @Column(name = "last_error", columnDefinition = "TEXT") private String lastError;
-    @Column(name = "last_connected_at") private Instant lastConnectedAt;
+    @TableField(value = "last_error") private String lastError;
+    @TableField(value = "last_connected_at") private Instant lastConnectedAt;
     private boolean enabled;
 
     public static McpServerEntity from(McpServer s, SecretCipher cipher) {

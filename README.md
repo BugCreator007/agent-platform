@@ -7,7 +7,8 @@ Agent 平台管理后台，前后端分离，后端按 DDD 限界上下文组织
 ```text
 agent-platform
 ├── backend        # Spring Boot 3.5 / Java 21，单 Maven 模块，内部 DDD 分包
-├── frontend       # React 19 + TypeScript + Vite
+├── admin-web      # React 19 + TypeScript + Vite（管理后台）
+├── user-web       # React 19 + TypeScript + Vite（用户端聊天门户）
 ├── deploy         # Docker Compose、TKE/K8s、CI
 ├── docs           # 工程说明与实现状态
 └── README.md
@@ -26,6 +27,7 @@ docker compose -f deploy/docker-compose.yml up -d
 启动后：
 
 - 前端：http://localhost:5173
+- 用户端：http://localhost:5174
 - 后端：http://localhost:8081
 - Swagger：http://localhost:8081/swagger-ui.html
 - 演示账号：`admin / admin123`、`developer / developer123`、`viewer / viewer123`
@@ -42,7 +44,11 @@ cd backend
 export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 mvn spring-boot:run
 
-cd ../frontend
+cd ../admin-web
+npm install
+npm run dev
+
+cd ../user-web
 npm install
 npm run dev
 ```
@@ -72,7 +78,7 @@ Agent 运行时按智能体绑定的 `providerId + modelId` 选择真实模型�
 
 ### 数据与安全
 
-- MySQL 8 + Flyway 迁移 + JPA 实体/仓储，所有业务数据落库。
+- MySQL 8 + Flyway 迁移 + MyBatis-Plus 实体/Mapper，所有业务数据落库。
 - JWT 登录、OIDC Resource Server 兼容、RBAC（PLATFORM_ADMIN / DEVELOPER / EVALUATOR / VIEWER）。
 - Redis 登录失败限流、JWT 登出黑名单。
 - 管理员可删除智能体、模型厂商和调试会话（审计记录保留）。
@@ -120,7 +126,7 @@ Agent 运行时按智能体绑定的 `providerId + modelId` 选择真实模型�
 cd backend
 mvn test
 
-cd ../frontend
+cd ../admin-web
 npm run build
 ```
 

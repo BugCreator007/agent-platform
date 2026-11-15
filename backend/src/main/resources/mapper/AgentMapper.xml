@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.agent.infrastructure.persistence.mapper.AgentMapper">
+  <resultMap id="BaseResultMap" type="com.agentplatform.modules.agent.infrastructure.persistence.entity.AgentEntity" autoMapping="true">
+    <id column="id" property="id"/>
+    <result column="tools" property="tools" typeHandler="com.agentplatform.common.persistence.StringListTypeHandler"/>
+    <result column="kb" property="kb" typeHandler="com.agentplatform.common.persistence.StringListTypeHandler"/>
+  </resultMap>
+  <select id="findByCode" resultMap="BaseResultMap">
+    select * from agents where code = #{code}
+  </select>
+</mapper>

@@ -13,7 +13,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 mvn test
 mvn -DskipTests package
 
-cd ../frontend
+cd ../admin-web
 npm install
 npm run build
 ```
@@ -39,7 +39,7 @@ docker compose -f deploy/docker-compose.yml up -d
 
 ```bash
 docker build -t ccr.ccs.tencentyun.com/agent-platform/backend:latest backend
-docker build -t ccr.ccs.tencentyun.com/agent-platform/frontend:latest frontend
+docker build -t ccr.ccs.tencentyun.com/agent-platform/frontend:latest admin-web
 docker push ...
 ```
 

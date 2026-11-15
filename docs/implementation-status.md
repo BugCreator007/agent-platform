@@ -4,7 +4,7 @@
 
 ### 持久化
 - MySQL 8 + Flyway（`V1__init.sql`、`V2__alert_rules.sql`）。
-- JPA 实体与仓储适配器覆盖智能体、会话、数据集/文档/分块、模型/厂商/路由、发布、评测、工具、流程/实例/节点执行、告警/规则、成员/密钥/审计、用户。
+- MyBatis-Plus 实体与 Mapper 适配器覆盖智能体、会话、数据集/文档/分块、模型/厂商/路由、发布、评测、工具、流程/实例/节点执行、告警/规则、成员/密钥/审计、用户。
 - 原内存仓储已重构为仅供首次启动使用的种子数据类，不再作为运行时仓储。
 - 生产默认连接 MySQL；测试使用 H2 MySQL 模式，Flyway 同样执行。
 
@@ -74,7 +74,7 @@ docker compose -f deploy/docker-compose.yml up -d
 
 ```bash
 cd backend && mvn spring-boot:run
-cd frontend && npm run dev
+cd admin-web && npm run dev
 ```
 
 演示账号：`admin/admin123`、`developer/developer123`、`viewer/viewer123`。

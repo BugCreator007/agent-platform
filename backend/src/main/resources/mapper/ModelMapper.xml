@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.model.infrastructure.persistence.mapper.ModelMapper">
+  <resultMap id="BaseResultMap" type="com.agentplatform.modules.model.infrastructure.persistence.entity.ModelEntity" autoMapping="true">
+    <id column="id" property="id"/>
+    <result column="capabilities" property="capabilities" typeHandler="com.agentplatform.common.persistence.StringListTypeHandler"/>
+  </resultMap>
+  <delete id="deleteByProviderId">
+    delete from models where provider_id = #{providerId}
+  </delete>
+</mapper>

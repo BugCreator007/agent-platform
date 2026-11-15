@@ -1,21 +1,25 @@
 package com.agentplatform.modules.chat.infrastructure.persistence.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import com.agentplatform.modules.chat.domain.model.SessionMessage;
-import jakarta.persistence.*;
 
 import java.time.Instant;
 
-@Entity
-@Table(name = "session_messages")
+@TableName(value = "session_messages", autoResultMap = true)
 public class SessionMessageEntity {
-    @Id private String id;
-    @Column(name = "session_id") private String sessionId;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "session_id") private String sessionId;
     private String role;
-    @Column(columnDefinition = "LONGTEXT") private String content;
+    private String content;
     private int tokens;
     private String model;
-    @Column(name = "context_count") private int contextCount;
-    @Column(name = "created_at") private Instant createdAt;
+    @TableField(value = "context_count") private int contextCount;
+    @TableField(value = "created_at") private Instant createdAt;
 
     public static SessionMessageEntity from(SessionMessage m) {
         SessionMessageEntity e = new SessionMessageEntity();

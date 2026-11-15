@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.knowledge.infrastructure.persistence.mapper.DocumentMapper">
+  <select id="findByDatasetId" resultType="com.agentplatform.modules.knowledge.infrastructure.persistence.entity.DocumentEntity">
+    select * from documents where dataset_id = #{datasetId}
+  </select>
+
+  <delete id="deleteByDatasetIdAndId">
+    delete from documents where dataset_id = #{datasetId} and id = #{id}
+  </delete>
+</mapper>

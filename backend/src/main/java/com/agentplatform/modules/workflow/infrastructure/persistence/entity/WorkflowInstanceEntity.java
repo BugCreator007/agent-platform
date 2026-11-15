@@ -1,26 +1,30 @@
 package com.agentplatform.modules.workflow.infrastructure.persistence.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import com.agentplatform.modules.workflow.domain.model.WorkflowInstance;
-import jakarta.persistence.*;
 
 import java.time.Instant;
 
-@Entity
-@Table(name = "workflow_instances")
+@TableName(value = "workflow_instances", autoResultMap = true)
 public class WorkflowInstanceEntity {
-    @Id private String id;
-    @Column(name = "workflow_id") private String workflowId;
-    @Column(name = "workflow_name") private String workflowName;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "workflow_id") private String workflowId;
+    @TableField(value = "workflow_name") private String workflowName;
     private String status;
-    @Column(name = "trigger_type") private String triggerType;
-    @Column(name = "input_json", columnDefinition = "TEXT") private String inputJson;
-    @Column(name = "output_json", columnDefinition = "TEXT") private String outputJson;
-    @Column(name = "current_node") private String currentNode;
-    @Column(name = "started_at") private Instant startedAt;
-    @Column(name = "finished_at") private Instant finishedAt;
-    @Column(columnDefinition = "TEXT") private String error;
-    @Column(name = "state_json", columnDefinition = "TEXT") private String stateJson;
-    @Column(name = "resume_at") private Instant resumeAt;
+    @TableField(value = "trigger_type") private String triggerType;
+    @TableField(value = "input_json") private String inputJson;
+    @TableField(value = "output_json") private String outputJson;
+    @TableField(value = "current_node") private String currentNode;
+    @TableField(value = "started_at") private Instant startedAt;
+    @TableField(value = "finished_at") private Instant finishedAt;
+    private String error;
+    @TableField(value = "state_json") private String stateJson;
+    @TableField(value = "resume_at") private Instant resumeAt;
     public static WorkflowInstanceEntity from(WorkflowInstance i) {
         WorkflowInstanceEntity e = new WorkflowInstanceEntity();
         e.id=i.id(); e.workflowId=i.workflowId(); e.workflowName=i.workflowName(); e.status=i.status();

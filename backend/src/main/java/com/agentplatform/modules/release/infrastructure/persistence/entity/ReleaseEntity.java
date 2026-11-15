@@ -1,21 +1,25 @@
 package com.agentplatform.modules.release.infrastructure.persistence.entity;
 
-import com.agentplatform.modules.release.domain.model.Release;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
-@Entity
-@Table(name = "releases")
+import com.agentplatform.modules.release.domain.model.Release;
+
+@TableName(value = "releases", autoResultMap = true)
 public class ReleaseEntity {
-    @Id private String id;
-    @Column(name = "agent_id") private String agentId;
-    @Column(name = "agent_name") private String agentName;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "agent_id") private String agentId;
+    @TableField(value = "agent_name") private String agentName;
     private String version;
     private String stage;
     private int traffic;
-    @Column(name = "eval_score") private Double evalScore;
+    @TableField(value = "eval_score") private Double evalScore;
     private String owner;
-    @Column(name = "time_label") private String timeLabel;
-    @Column(columnDefinition = "TEXT") private String note;
+    @TableField(value = "time_label") private String timeLabel;
+    private String note;
 
     public static ReleaseEntity from(Release r) {
         ReleaseEntity e = new ReleaseEntity();

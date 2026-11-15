@@ -1,20 +1,23 @@
 package com.agentplatform.modules.system.infrastructure.persistence.entity;
 
-import com.agentplatform.common.persistence.StringListConverter;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.common.persistence.StringListTypeHandler;
+
 import com.agentplatform.modules.system.domain.model.UserAccount;
-import jakarta.persistence.*;
 
 import java.util.List;
 
-@Entity
-@Table(name = "users")
+@TableName(value = "users", autoResultMap = true)
 public class UserEntity {
-    @Id private String id;
-    @Column(nullable = false, unique = true) private String username;
-    @Column(name = "password_hash", nullable = false) private String passwordHash;
-    @Column(name = "display_name") private String displayName;
-    @Convert(converter = StringListConverter.class)
-    @Column(columnDefinition = "TEXT") private List<String> roles;
+    @TableId(type = IdType.INPUT) private String id;
+    private String username;
+    @TableField(value = "password_hash") private String passwordHash;
+    @TableField(value = "display_name") private String displayName;
+    @TableField(typeHandler = StringListTypeHandler.class) private List<String> roles;
     private boolean enabled;
     public static UserEntity from(UserAccount u) {
         UserEntity e = new UserEntity(); e.id=u.id(); e.username=u.username(); e.passwordHash=u.passwordHash();

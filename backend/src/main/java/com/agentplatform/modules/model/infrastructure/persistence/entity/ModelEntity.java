@@ -1,28 +1,31 @@
 package com.agentplatform.modules.model.infrastructure.persistence.entity;
 
-import com.agentplatform.common.persistence.StringListConverter;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.common.persistence.StringListTypeHandler;
+
 import com.agentplatform.modules.model.domain.model.ModelInfo;
-import jakarta.persistence.*;
 
 import java.util.List;
 
-@Entity
-@Table(name = "models")
+@TableName(value = "models", autoResultMap = true)
 public class ModelEntity {
-    @Id private String id;
-    @Column(name = "provider_id") private String providerId;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "provider_id") private String providerId;
     private String name;
-    @Column(name = "context_window") private String context;
-    @Column(name = "in_price") private double inPrice;
-    @Column(name = "out_price") private double outPrice;
-    @Convert(converter = StringListConverter.class)
-    @Column(columnDefinition = "TEXT") private List<String> capabilities;
+    @TableField(value = "context_window") private String context;
+    @TableField(value = "in_price") private double inPrice;
+    @TableField(value = "out_price") private double outPrice;
+    @TableField(typeHandler = StringListTypeHandler.class) private List<String> capabilities;
     private long calls;
     private String latency;
     private String status;
-    @Column(name = "route_weight") private int routeWeight;
-    @Column(name = "is_default") private boolean isDefault;
-    @Column(name = "upstream_model") private String upstreamModel;
+    @TableField(value = "route_weight") private int routeWeight;
+    @TableField(value = "is_default") private boolean isDefault;
+    @TableField(value = "upstream_model") private String upstreamModel;
 
     public static ModelEntity from(ModelInfo m) {
         ModelEntity e = new ModelEntity();

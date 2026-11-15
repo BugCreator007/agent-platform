@@ -1,24 +1,28 @@
 package com.agentplatform.modules.knowledge.infrastructure.persistence.entity;
 
-import com.agentplatform.modules.knowledge.domain.model.Document;
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
-@Entity
-@Table(name = "documents")
+import com.agentplatform.modules.knowledge.domain.model.Document;
+
+@TableName(value = "documents", autoResultMap = true)
 public class DocumentEntity {
-    @Id private String id;
-    @Column(name = "dataset_id") private String datasetId;
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "dataset_id") private String datasetId;
     private String name;
     private int version;
     private long chunks;
-    @Column(name = "size_label") private String sizeLabel;
+    @TableField(value = "size_label") private String sizeLabel;
     private String status;
     private String updated;
-    @Column(name = "storage_key") private String storageKey;
-    @Column(name = "content_type") private String contentType;
+    @TableField(value = "storage_key") private String storageKey;
+    @TableField(value = "content_type") private String contentType;
     private String checksum;
-    @Column(name = "source_type") private String sourceType;
-    @Column(name = "source_url") private String sourceUrl;
+    @TableField(value = "source_type") private String sourceType;
+    @TableField(value = "source_url") private String sourceUrl;
 
     public static DocumentEntity from(Document d) {
         DocumentEntity e = new DocumentEntity();

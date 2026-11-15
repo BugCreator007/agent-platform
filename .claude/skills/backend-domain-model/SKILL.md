@@ -27,13 +27,13 @@ public void publish() {
 ```
 
 - 应用服务负责编排、权限和事务；领域对象负责业务不变量。
-- 领域层不引用 Spring/JPA/WebClient。
+- 领域层不引用 Spring/MyBatis-Plus/WebClient。
 - 值对象优先用 record；有身份和生命周期用 class。
 - 仓储端口放在 domain，返回领域对象，不返回 Entity。
 
 ## 修改聚合时的兼容性
 
-- 增加字段时保留旧构造器/`restore` 重载，避免 JPA 映射和种子数据同时改动过大。
+- 增加字段时保留旧构造器/`restore` 重载，避免 MyBatis-Plus 字段映射和种子数据同时改动过大。
 - 新字段的空值语义要明确：`null`、空字符串还是“未绑定”。
 - 修改状态机时补测试：非法状态必须抛 `IllegalStateException` 或 `BusinessException`。
 

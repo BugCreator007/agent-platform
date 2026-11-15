@@ -1,13 +1,17 @@
 package com.agentplatform.modules.model.infrastructure.persistence.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 import com.agentplatform.framework.security.SecretCipher;
 import com.agentplatform.modules.model.domain.model.Provider;
-import jakarta.persistence.*;
 
-@Entity
-@Table(name = "providers")
+@TableName(value = "providers", autoResultMap = true)
 public class ProviderEntity {
-    @Id private String id;
+    @TableId(type = IdType.INPUT) private String id;
     private String name;
     private String status;
     private String endpoint;
@@ -19,8 +23,8 @@ public class ProviderEntity {
     private double success;
     private double quota;
     private double used;
-    @Column(name = "key_value") private String keyValue;
-    @Column(name = "api_key_encrypted", columnDefinition = "TEXT") private String apiKeyEncrypted;
+    @TableField(value = "key_value") private String keyValue;
+    @TableField(value = "api_key_encrypted") private String apiKeyEncrypted;
     private String region;
     private String route;
 

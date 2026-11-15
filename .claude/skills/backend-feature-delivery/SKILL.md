@@ -37,7 +37,7 @@ description: 端到端完成后端功能时使用；从需求定位模块，串�
 
 1. 迁移：新增 `V{n}__*.sql`。
 2. domain：聚合、状态流转、仓储端口。
-3. infrastructure：Entity、JPA、适配器、事务。
+3. infrastructure：Entity、Mapper、适配器、事务。
 4. application：业务编排、权限、审计。
 5. interfaces：DTO、Controller、OpenAPI。
 6. 前端契约：`api.ts` + 页面。

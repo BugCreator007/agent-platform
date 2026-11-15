@@ -11,7 +11,7 @@ description: 在 Agent Platform 新增或修改 REST 接口时使用；覆盖 DT
 - `backend/src/main/java/com/agentplatform/common/error/{BusinessException,ErrorCode}.java`
 - `backend/src/main/java/com/agentplatform/framework/web/GlobalExceptionHandler.java`
 - 目标模块的 `interfaces/rest` 和 `application/service`
-- `frontend/src/api.ts` 和实际调用页面
+- `admin-web/src/api.ts` 和实际调用页面
 
 ## 统一响应
 
@@ -57,7 +57,7 @@ public ApiResponse<XSummary> create(@Valid @RequestBody CreateXRequest request) 
 7. 更新 OpenAPI：全局 Bearer 已配置；DTO 字段加 `@Schema(description=...)` 可选。
 8. 同步前端契约：
 
-- `frontend/src/api.ts` 增加/修改 TypeScript interface。
+- `admin-web/src/api.ts` 增加/修改 TypeScript interface。
 - 对应页面 mutation/query 更新。
 - 运行 `npm run build`。
 
@@ -79,7 +79,7 @@ public ApiResponse<XSummary> create(@Valid @RequestBody CreateXRequest request) 
 
 ```bash
 cd backend && mvn test
-cd frontend && npm run build
+cd admin-web && npm run build
 ```
 
 至少用 curl 或前端验证：未登录 401、无权限 403、正常 200、参数错误 400。

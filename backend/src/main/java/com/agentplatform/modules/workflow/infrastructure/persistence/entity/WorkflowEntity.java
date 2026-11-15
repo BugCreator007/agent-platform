@@ -1,26 +1,29 @@
 package com.agentplatform.modules.workflow.infrastructure.persistence.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.modules.workflow.infrastructure.persistence.WorkflowNodeListTypeHandler;
+
 import com.agentplatform.modules.workflow.domain.model.Workflow;
 import com.agentplatform.modules.workflow.domain.model.WorkflowNode;
-import com.agentplatform.modules.workflow.infrastructure.persistence.WorkflowNodeListConverter;
-import jakarta.persistence.*;
 
 import java.util.List;
 
-@Entity
-@Table(name = "workflows")
+@TableName(value = "workflows", autoResultMap = true)
 public class WorkflowEntity {
-    @Id private String id;
+    @TableId(type = IdType.INPUT) private String id;
     private String name;
     private String status;
-    @Column(name = "trigger_label") private String triggerLabel;
+    @TableField(value = "trigger_label") private String triggerLabel;
     private long runs;
     private double success;
     private String owner;
     private String version;
     private String updated;
-    @Convert(converter = WorkflowNodeListConverter.class)
-    @Column(name = "nodes_json", columnDefinition = "TEXT") private List<WorkflowNode> nodes;
+    @TableField(value = "nodes_json", typeHandler = WorkflowNodeListTypeHandler.class) private List<WorkflowNode> nodes;
 
     public static WorkflowEntity from(Workflow w) {
         WorkflowEntity e = new WorkflowEntity();

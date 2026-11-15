@@ -105,10 +105,19 @@ services:
 
   agent-frontend:
     build:
-      context: ../frontend
+      context: ../admin-web
       dockerfile: Dockerfile
     ports:
       - "5173:80"
+    depends_on:
+      - agent-backend
+
+  user-web:
+    build:
+      context: ../user-web
+      dockerfile: Dockerfile
+    ports:
+      - "5174:80"
     depends_on:
       - agent-backend
 

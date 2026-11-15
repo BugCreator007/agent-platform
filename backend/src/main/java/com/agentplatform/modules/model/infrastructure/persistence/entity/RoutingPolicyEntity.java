@@ -1,19 +1,22 @@
 package com.agentplatform.modules.model.infrastructure.persistence.entity;
 
-import com.agentplatform.common.persistence.StringListConverter;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.agentplatform.common.persistence.StringListTypeHandler;
+
 import com.agentplatform.modules.model.domain.model.RoutingPolicy;
-import jakarta.persistence.*;
 
 import java.util.List;
 
-@Entity
-@Table(name = "routing_policy")
+@TableName(value = "routing_policy", autoResultMap = true)
 public class RoutingPolicyEntity {
-    @Id private String id;
+    @TableId(type = IdType.INPUT) private String id;
     private String strategy;
-    @Column(name = "primary_model") private String primaryModel;
-    @Convert(converter = StringListConverter.class)
-    @Column(columnDefinition = "TEXT") private List<String> fallback;
+    @TableField(value = "primary_model") private String primaryModel;
+    @TableField(typeHandler = StringListTypeHandler.class) private List<String> fallback;
     private String region;
 
     public static RoutingPolicyEntity from(RoutingPolicy p) {

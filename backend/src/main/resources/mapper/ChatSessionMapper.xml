@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.agentplatform.modules.chat.infrastructure.persistence.mapper.ChatSessionMapper">
+  <resultMap id="BaseResultMap" type="com.agentplatform.modules.chat.infrastructure.persistence.entity.ChatSessionEntity" autoMapping="true">
+    <id column="id" property="id"/>
+    <result column="trace_json" property="trace" typeHandler="com.agentplatform.modules.chat.infrastructure.persistence.TraceStepListTypeHandler"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
+  <select id="findByCreatedAtBetween" resultMap="BaseResultMap">
+    select * from chat_sessions
+    where created_at between #{from} and #{to}
+    order by created_at asc
+  </select>
+</mapper>

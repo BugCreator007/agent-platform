@@ -18,7 +18,7 @@ git status
 
 - [ ] 没有跨模块 import 未暴露的 `domain/infrastructure`。
 - [ ] 跨模块 API 放在 `application/query` 或 `application/service`，并加 `@NamedInterface`。
-- [ ] domain 不依赖 Spring/JPA/WebClient。
+- [ ] domain 不依赖 Spring/MyBatis-Plus/WebClient。
 - [ ] `mvn test` 的 Modulith 校验通过。
 
 ## 安全
@@ -34,7 +34,7 @@ git status
 ## 持久化
 
 - [ ] 新迁移使用下一个版本号，不改旧迁移。
-- [ ] `ddl-auto=validate` 下 Entity 与 SQL 一致。
+- [ ] Flyway 迁移与 Entity 的 `@TableName/@TableField` 映射一致（已取消 Hibernate ddl 校验）。
 - [ ] delete/批量操作有 `@Transactional`。
 - [ ] 没有 N+1 查询或不必要的 findAll 后过滤（数据量大时）。
 - [ ] null 字段序列化不会触发 `Map.of` NPE。
