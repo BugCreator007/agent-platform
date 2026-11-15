@@ -274,7 +274,7 @@ public class OverviewApplicationService {
                     agent.version(), agent.model(), agent.providerId(), agent.modelId(),
                     agent.owner(), agent.team(), agent.release(), sessions,
                     round(rate), latency, round(cost), agent.updated(),
-                    agent.prompt(), agent.tools(), agent.kb()));
+                    agent.prompt(), agent.tools(), agent.kb(), agent.citationKb()));
         }
         // 会话多的排前面，同量级按名称排序，保证列表稳定
         result.sort(Comparator.comparingLong(AgentSummary::sessions).reversed()

@@ -49,7 +49,7 @@ export function AgentsPage() {
   const [debugAgent, setDebugAgent] = useState<Agent | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Agent | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', owner: '', team: '', providerId: '', modelId: '', model: '', prompt: '', tools: [] as string[], kb: [] as string[] })
+  const [editForm, setEditForm] = useState({ name: '', owner: '', team: '', providerId: '', modelId: '', model: '', prompt: '', tools: [] as string[], kb: [] as string[], citationKb: [] as string[] })
 
   // 基础数据查询：智能体、今日统计（60 秒轮询）、工具、知识库、模型与厂商
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
@@ -90,6 +90,7 @@ export function AgentsPage() {
       modelId: selected!.modelId,
       tools: selected!.tools,
       kb: selected!.kb,
+      citationKb: selected!.citationKb,
     }),
     onSuccess: (agent) => {
       toast('提示词已保存为草稿')
@@ -156,7 +157,7 @@ export function AgentsPage() {
     setEditForm({
       name: agent.name, owner: agent.owner, team: agent.team,
       providerId: agent.providerId ?? '', modelId: agent.modelId ?? '', model: agent.model,
-      prompt: agent.prompt, tools: [...agent.tools], kb: [...agent.kb],
+      prompt: agent.prompt, tools: [...agent.tools], kb: [...agent.kb], citationKb: [...(agent.citationKb ?? [])],
     })
   }
 
@@ -366,7 +367,33 @@ export function AgentsPage() {
         }}><option value="">未绑定</option>{(models.data ?? []).filter((m) => m.providerId === editForm.providerId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
         <div className="field"><label>系统提示词</label><textarea className="input" rows={7} value={editForm.prompt} onChange={(e) => setEditForm({ ...editForm, prompt: e.target.value })} /></div>
         <div className="field"><label>工具</label><div className="row wrap" style={{ gap: 6 }}>{(tools.data ?? []).map((t) => <button key={t.name} className={`chip ${editForm.tools.includes(t.name) ? 'active' : ''}`} onClick={() => setEditForm({ ...editForm, tools: editForm.tools.includes(t.name) ? editForm.tools.filter((x) => x !== t.name) : [...editForm.tools, t.name] })}>{t.name}</button>)}</div></div>
-        <div className="field"><label>知识库</label><div className="row wrap" style={{ gap: 6 }}>{(datasets.data ?? []).map((d) => <button key={d.id} className={`chip ${editForm.kb.includes(d.id) ? 'active' : ''}`} onClick={() => setEditForm({ ...editForm, kb: editForm.kb.includes(d.id) ? editForm.kb.filter((x) => x !== d.id) : [...editForm.kb, d.id] })}>{d.name}</button>)}</div></div>
+        <div className="field">
+          <label>知识库</label>
+          <div className="row wrap" style={{ gap: 6 }}>
+            {(datasets.data ?? []).map((d) => {
+              const selectedKb = editForm.kb.includes(d.id)
+              return <button key={d.id} className={`chip ${selectedKb ? 'active' : ''}`} onClick={() => setEditForm({
+                ...editForm,
+                kb: selectedKb ? editForm.kb.filter((x) => x !== d.id) : [...editForm.kb, d.id],
+                citationKb: selectedKb ? editForm.citationKb.filter((x) => x !== d.id) : [...editForm.citationKb, d.id],
+              })}>{d.name}</button>
+            })}
+          </div>
+          {!!editForm.kb.length && (
+            <div className="checklist mt-2">
+              <div className="hint">选择哪些知识库需要在回答末尾返回文档链接：</div>
+              {editForm.kb.map((id) => (
+                <label className="ci" key={id}>
+                  <input type="checkbox" checked={editForm.citationKb.includes(id)} onChange={(e) => setEditForm({
+                    ...editForm,
+                    citationKb: e.target.checked ? [...editForm.citationKb, id] : editForm.citationKb.filter((x) => x !== id),
+                  })} />
+                  {datasets.data?.find((d) => d.id === id)?.name ?? id} · 返回文档链接
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       </Modal>
 
       <CreateAgentWizard
@@ -541,7 +568,7 @@ function CreateAgentWizard({
     providerId: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.providerId ?? '',
     modelId: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.id ?? '',
     model: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.name ?? '', prompt: '你是企业的智能助手，回答前先核实信息，不承诺系统外的事项。',
-    tools: [] as string[], kb: [] as string[],
+    tools: [] as string[], kb: [] as string[], citationKb: [] as string[],
   })
   /** 创建提交，成功后交给父组件刷新列表并打开详情 */
   const create = useMutation({
@@ -559,10 +586,15 @@ function CreateAgentWizard({
   }, [open, models.length])
 
   const update = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
-  const toggle = (key: 'tools' | 'kb', value: string) => setForm((f) => ({
-    ...f,
-    [key]: f[key].includes(value) ? f[key].filter((x) => x !== value) : [...f[key], value],
-  }))
+  const toggle = (key: 'tools' | 'kb', value: string) => setForm((f) => {
+    const selected = f[key].includes(value)
+    return {
+      ...f,
+      [key]: selected ? f[key].filter((x) => x !== value) : [...f[key], value],
+      // 勾选知识库时默认开启引用返回；取消知识库时同步移除引用配置。
+      ...(key === 'kb' ? { citationKb: selected ? f.citationKb.filter((x) => x !== value) : [...f.citationKb, value] } : {}),
+    }
+  })
 
   return (
     <Modal
@@ -626,6 +658,19 @@ function CreateAgentWizard({
               <div className="row wrap" style={{ gap: 6 }}>
                 {datasets.map((d) => <button key={d.id} className={`chip ${form.kb.includes(d.id) ? 'active' : ''}`} onClick={() => toggle('kb', d.id)}>{d.name}</button>)}
               </div>
+              {!!form.kb.length && (
+                <div className="checklist mt-2">
+                  <div className="hint">选择哪些知识库需要在回答末尾返回文档链接：</div>
+                  {form.kb.map((id) => (
+                    <label className="ci" key={id}>
+                      <input type="checkbox" checked={form.citationKb.includes(id)} onChange={(e) => update({
+                        citationKb: e.target.checked ? [...form.citationKb, id] : form.citationKb.filter((x) => x !== id),
+                      })} />
+                      {datasets.find((d) => d.id === id)?.name ?? id} · 返回文档链接
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -639,6 +684,7 @@ function CreateAgentWizard({
                 <dt>负责人</dt><dd>{form.owner}</dd>
                 <dt>工具</dt><dd>{form.tools.length ? form.tools.join('、') : '未绑定'}</dd>
                 <dt>知识库</dt><dd>{form.kb.length ? form.kb.map((id) => datasets.find((d) => d.id === id)?.name ?? id).join('、') : '未绑定'}</dd>
+                <dt>返回文档链接</dt><dd>{form.citationKb.length ? form.citationKb.map((id) => datasets.find((d) => d.id === id)?.name ?? id).join('、') : '关闭'}</dd>
               </div>
               <div className="section-head"><h2>系统提示词</h2></div>
               <div className="prompt-box">{form.prompt}</div>

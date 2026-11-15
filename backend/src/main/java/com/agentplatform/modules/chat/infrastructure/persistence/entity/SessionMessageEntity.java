@@ -6,9 +6,13 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
+import com.agentplatform.modules.chat.domain.model.MessageCitation;
 import com.agentplatform.modules.chat.domain.model.SessionMessage;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * 会话消息表 {@code session_messages} 的持久化实体（infrastructure 层）。
@@ -17,6 +21,8 @@ import java.time.Instant;
  */
 @TableName(value = "session_messages", autoResultMap = true)
 public class SessionMessageEntity {
+    /** 引用 JSON 序列化器；实体只负责 JSON 字符串与领域列表互转。 */
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     /** 消息 ID（主键，由应用侧生成，不使用数据库自增）。 */
     @TableId(type = IdType.INPUT) private String id;
     /** 所属会话 ID。 */
@@ -33,6 +39,8 @@ public class SessionMessageEntity {
     @TableField(value = "context_count") private int contextCount;
     /** 创建时间。 */
     @TableField(value = "created_at") private Instant createdAt;
+    /** 知识库引用 JSON；历史数据为空。 */
+    @TableField(value = "citations_json") private String citationsJson;
 
     /**
      * 领域模型转持久化实体；创建时间为空时补当前时间。
@@ -44,7 +52,11 @@ public class SessionMessageEntity {
         SessionMessageEntity e = new SessionMessageEntity();
         e.id=m.id(); e.sessionId=m.sessionId(); e.role=m.role(); e.content=m.content();
         e.tokens=m.tokens(); e.model=m.model(); e.contextCount=m.contextCount();
-        e.createdAt=m.createdAt() == null ? Instant.now() : m.createdAt(); return e;
+        e.createdAt=m.createdAt() == null ? Instant.now() : m.createdAt();
+        try { e.citationsJson = m.citations() == null || m.citations().isEmpty()
+                ? null : MAPPER.writeValueAsString(m.citations()); }
+        catch (Exception ignored) { e.citationsJson = null; }
+        return e;
     }
     /**
      * 持久化实体转领域模型。
@@ -52,6 +64,10 @@ public class SessionMessageEntity {
      * @return 领域消息
      */
     public SessionMessage toDomain() {
-        return new SessionMessage(id, sessionId, role, content, tokens, model, contextCount, createdAt);
+        List<MessageCitation> citations;
+        try { citations = citationsJson == null || citationsJson.isBlank() ? List.of()
+                : MAPPER.readValue(citationsJson, new TypeReference<>() {}); }
+        catch (Exception ignored) { citations = List.of(); }
+        return new SessionMessage(id, sessionId, role, content, tokens, model, contextCount, createdAt, citations);
     }
 }

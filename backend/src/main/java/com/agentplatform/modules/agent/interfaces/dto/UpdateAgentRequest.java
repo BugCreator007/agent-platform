@@ -15,6 +15,7 @@ package com.agentplatform.modules.agent.interfaces.dto;
  * @param prompt     新系统提示词，null 表示不修改（可传空串清空）
  * @param tools      新工具编码列表，null 表示不修改；非 null 时整体替换
  * @param kb         新知识库编码列表，null 表示不修改；非 null 时整体替换
+ * @param citationKb 新引用知识库列表，null 表示按 kb 过滤现有配置
  */
 public record UpdateAgentRequest(
         String name,
@@ -25,6 +26,7 @@ public record UpdateAgentRequest(
         String team,
         String prompt,
         java.util.List<String> tools,
-        java.util.List<String> kb
+        java.util.List<String> kb,
+        java.util.List<String> citationKb
 ) {
 }

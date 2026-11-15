@@ -14,7 +14,12 @@ import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
+import java.nio.charset.StandardCharsets;
 
 import java.util.List;
 
@@ -201,6 +206,26 @@ public class KnowledgeController {
     @PutMapping(value = "/documents/{id}:upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<Document> replaceFile(@PathVariable String id, @RequestPart("file") MultipartFile file) {
         return ApiResponse.ok(applicationService.replaceMultipart(id, file));
+    }
+
+    /**
+     * 下载文档原始文件；网页文档请直接使用检索结果中的来源地址。
+     *
+     * @param id 文档 ID
+     * @return 文件字节，带附件文件名与 MIME
+     */
+    @GetMapping("/documents/{id}/download")
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable String id) {
+        var download = applicationService.downloadDocument(id);
+        String contentType = download.contentType() == null || download.contentType().isBlank()
+                ? MediaType.APPLICATION_OCTET_STREAM_VALUE : download.contentType();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename(download.name() == null ? "document" : download.name(), StandardCharsets.UTF_8)
+                                .build().toString())
+                .contentType(MediaType.parseMediaType(contentType))
+                .body(download.content());
     }
 
     /**

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, auth, type Agent, type ChatSession, type ModelInfo, type Provider, type SessionMessage } from '../api'
+import { api, auth, downloadCitation, type Agent, type ChatSession, type Citation, type ModelInfo, type Provider, type SessionMessage } from '../api'
 import { Icon } from '../components/icons'
 import { Badge, Button, PageHead, Panel, StatusBadge, toast } from '../components/ui'
 
 /** 调试对话中的消息项（仅保留用户与助手两种角色） */
-type ChatItem = { role: 'user' | 'assistant'; content: string }
+type ChatItem = { role: 'user' | 'assistant'; content: string; citations?: Citation[] }
 
 /**
  * 会话调试页：左侧历史会话、中间流式对话、右侧运行配置。
@@ -57,7 +57,7 @@ export function DebugPage() {
     try {
       const list = await api.get<SessionMessage[]>(`/sessions/${session.id}/messages`)
       const persisted = list.filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, citations: m.citations }))
       setMessages(persisted.length ? persisted : (session.topic ? [{ role: 'user', content: session.topic }] : []))
     } catch {
       setMessages([])
@@ -122,7 +122,13 @@ export function DebugPage() {
             try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `工具返回 · ${t.name} · ${t.error ? '失败' : '成功'}`]) } catch { /* ignore */ }
           } else if (event === 'done') {
             // 结束后同步会话 ID 与实际模型，并刷新会话列表缓存
-            try { const d = JSON.parse(data); setSessionId(d.sessionId ?? sessionId); setRuntimeModel(d.model ?? runtimeModel) } catch { /* ignore */ }
+            try {
+              const d = JSON.parse(data)
+              setSessionId(d.sessionId ?? sessionId)
+              setRuntimeModel(d.model ?? runtimeModel)
+              setMessages((prev) => prev.map((m, i) => i === prev.length - 1
+                ? { ...m, citations: Array.isArray(d.citations) ? d.citations as Citation[] : [] } : m))
+            } catch { /* ignore */ }
             queryClient.invalidateQueries({ queryKey: ['sessions'] })
           } else if (event === 'error') {
             try { toast(JSON.parse(data).message ?? '运行失败', 'err') } catch { toast('运行失败', 'err') }
@@ -196,7 +202,20 @@ export function DebugPage() {
             {messages.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
-                <div className="bubble">{m.content}{m.role === 'assistant' && streaming && i === messages.length - 1 && <span className="typing">▍</span>}</div>
+                <div className="bubble">
+                  {m.content}
+                  {m.role === 'assistant' && streaming && i === messages.length - 1 && <span className="typing">▍</span>}
+                  {!!m.citations?.length && (
+                    <div className="chat-citations">
+                      <div className="chat-citations-title">参考资料</div>
+                      {m.citations.map((citation) => citation.sourceType === 'WEB' ? (
+                        <a key={citation.documentId} href={citation.url} target="_blank" rel="noreferrer">{citation.name}</a>
+                      ) : (
+                        <button key={citation.documentId} onClick={() => downloadCitation(citation).catch((e: Error) => toast(e.message, 'err'))}>{citation.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
             {toolNotes.map((note, i) => <div key={`tool-${i}`} className="chat-note"><Icon name="tools" /><div>{note}</div></div>)}

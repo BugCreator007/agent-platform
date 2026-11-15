@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   api,
+  downloadCitation,
   session,
   streamChat,
+  type Citation,
   type UserAgent,
   type UserInfo,
 } from './api'
@@ -16,6 +18,7 @@ type ChatMessage = {
   content: string
   pending?: boolean
   tools?: ToolChip[]
+  citations?: Citation[]
 }
 /** localStorage 中按用户与智能体保存的对话快照 */
 type StoredChat = { sessionId: string | null; messages: ChatMessage[] }
@@ -258,7 +261,7 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
         if (cancelled) return
         const restored: ChatMessage[] = list
           .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .map((m) => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }))
+          .map((m) => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content, citations: m.citations }))
         if (restored.length) setMessages(restored)
       })
       .catch(() => {
@@ -343,6 +346,11 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
               }
               return { ...m, tools }
             }),
+          onDone: (done) => {
+            // 后端在 done 事件中返回本轮知识库引用；没有引用时保持空数组。
+            const citations = Array.isArray(done.citations) ? done.citations as Citation[] : []
+            updateAssistant(assistantId, (m) => ({ ...m, citations }))
+          },
           onError: (message) => {
             setError(message)
             updateAssistant(assistantId, (m) => ({ ...m, pending: false }))
@@ -420,6 +428,22 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
                       {tool.name}
                       {tool.status === 'running' ? ' 调用中' : tool.status === 'error' ? ' 失败' : ' 完成'}
                     </span>
+                  ))}
+                </div>
+              )}
+              {!!message.citations?.length && (
+                <div className="citations">
+                  <div className="citations-title">参考资料</div>
+                  {message.citations.map((citation) => (
+                    citation.sourceType === 'WEB' ? (
+                      <a key={citation.documentId} className="citation-link" href={citation.url} target="_blank" rel="noreferrer">
+                        {citation.name}
+                      </a>
+                    ) : (
+                      <button key={citation.documentId} className="citation-link" onClick={() => downloadCitation(citation).catch((e: Error) => setError(e.message))}>
+                        {citation.name}
+                      </button>
+                    )
                   ))}
                 </div>
               )}

@@ -3,6 +3,7 @@ package com.agentplatform.modules.chat.application.runtime;
 import com.agentplatform.modules.agent.application.query.AgentSummary;
 import com.agentplatform.modules.agent.application.service.AgentApplicationService;
 import com.agentplatform.modules.chat.domain.model.ChatSession;
+import com.agentplatform.modules.chat.domain.model.MessageCitation;
 import com.agentplatform.modules.chat.domain.model.SessionMessage;
 import com.agentplatform.modules.chat.domain.model.TraceStep;
 import com.agentplatform.modules.chat.domain.repository.SessionMessageRepository;
@@ -30,7 +31,9 @@ import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -129,12 +132,27 @@ public class AgentRuntimeService {
                 sessionId, "user", request.message(), 0, null, 0, java.time.Instant.now()));
 
         List<RetrievalHit> contexts = new ArrayList<>();
+        List<MessageCitation> citations = new ArrayList<>();
+        Set<String> citationKb = new HashSet<>(agent.citationKb() == null ? List.of() : agent.citationKb());
+        Set<String> citedDocumentIds = new HashSet<>();
         for (String kbId : agent.kb()) {
             try {
                 RetrievalResult result = knowledge.retrieve(kbId, request.message());
                 contexts.addAll(result.hits());
+                // 只对智能体开启了“返回文档链接”的知识库收集引用，并按文档去重。
+                if (citationKb.contains(kbId)) {
+                    for (RetrievalHit hit : result.hits()) {
+                        if (hit.documentId() == null || hit.documentId().isBlank()
+                                || hit.url() == null || hit.url().isBlank()) continue;
+                        if (citedDocumentIds.add(hit.documentId())) {
+                            citations.add(new MessageCitation(hit.documentId(), hit.source(),
+                                    hit.url(), hit.sourceType()));
+                        }
+                    }
+                }
             } catch (RuntimeException ignored) { } // 单个知识库不可用时降级跳过，不阻断对话。
         }
+        final List<MessageCitation> finalCitations = List.copyOf(citations);
         String toolContext = "";
         // 本地工具按关键词做轻量预取；这是演示用启发式，失败时同样静默降级。
         if (agent.tools().contains("order.query")
@@ -164,7 +182,8 @@ public class AgentRuntimeService {
             }
             final List<McpToolBinding> bindings = List.copyOf(mcpBindings);
             CompletableFuture.runAsync(() -> runMcpLoop(emitter, agent, request, sessionId, start,
-                    contexts.size(), systemPrompt, resolvedModel, resolvedProvider, routeLabel, history, bindings, routes));
+                    contexts.size(), systemPrompt, resolvedModel, resolvedProvider, routeLabel, history, bindings,
+                    routes, finalCitations));
             return emitter;
         }
         // 无工具分支：订阅模型文本流，逐片段转发为 SSE delta。
@@ -195,7 +214,7 @@ public class AgentRuntimeService {
                             ? request.message() : existing.topic();
                     messages.save(new SessionMessage("msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12),
                             sessionId, "assistant", answer.toString(), newTokens, resolvedModel, contexts.size(),
-                            java.time.Instant.now()));
+                            java.time.Instant.now(), finalCitations));
                     ChatSession session = new ChatSession(sessionId, agent.id(), agent.name(), "success",
                             turns, 0, totalTokens, elapsed, LocalTime.now().format(TIME), topic,
                             List.of(new TraceStep("model", "模型流式生成", elapsed,
@@ -208,6 +227,7 @@ public class AgentRuntimeService {
                         done.put("tokens", session.tokens());
                         done.put("ms", elapsed);
                         done.put("mock", mock);
+                        done.put("citations", finalCitations);
                         emitter.send(SseEmitter.event().name("done").data(done));
                         emitter.complete();
                     } catch (IOException e) { emitter.completeWithError(e); }
@@ -246,7 +266,8 @@ public class AgentRuntimeService {
     private void runMcpLoop(SseEmitter emitter, AgentSummary agent, RuntimeChatRequest request,
                             String sessionId, long start, int contextCount, String systemPrompt,
                             String resolvedModel, String resolvedProvider, String routeLabel,
-                            List<AiMessage> history, List<McpToolBinding> bindings, List<ModelRoute> routes) {
+                            List<AiMessage> history, List<McpToolBinding> bindings, List<ModelRoute> routes,
+                            List<MessageCitation> citations) {
         StringBuilder answer = new StringBuilder();
         AtomicLong tokens = new AtomicLong();
         List<AiMessage> chat = new ArrayList<>(history);
@@ -300,12 +321,13 @@ public class AgentRuntimeService {
             }
             int newTokens = (int) Math.max(1, tokens.get());
             saveCompletedSession(agent, request, sessionId, start, contextCount, resolvedModel, resolvedProvider,
-                    routeLabel, answer.toString(), newTokens, "MCP 工具链 · " + bindings.size() + " 个工具");
+                    routeLabel, answer.toString(), newTokens, "MCP 工具链 · " + bindings.size() + " 个工具", citations);
             try {
                 Map<String, Object> done = meta(sessionId, agent, routes, resolvedModel, contextCount, bindings.size());
                 done.put("tokens", newTokens);
                 done.put("ms", System.currentTimeMillis() - start);
                 done.put("mock", !model.configured(routes));
+                done.put("citations", citations);
                 emitter.send(SseEmitter.event().name("done").data(done));
                 emitter.complete();
             } catch (IOException e) { emitter.completeWithError(e); }
@@ -400,14 +422,16 @@ public class AgentRuntimeService {
      */
     private void saveCompletedSession(AgentSummary agent, RuntimeChatRequest request, String sessionId,
                                       long start, int contextCount, String resolvedModel, String resolvedProvider,
-                                      String routeLabel, String answer, int newTokens, String detail) {
+                                      String routeLabel, String answer, int newTokens, String detail,
+                                      List<MessageCitation> citations) {
         ChatSession existing = sessions.findById(sessionId).orElse(null);
         int turns = existing == null ? 1 : existing.turns() + 1;
         int totalTokens = (existing == null ? 0 : existing.tokens()) + newTokens;
         String topic = existing == null || existing.topic() == null || existing.topic().isBlank()
                 ? request.message() : existing.topic();
         messages.save(new SessionMessage("msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12),
-                sessionId, "assistant", answer, newTokens, resolvedModel, contextCount, java.time.Instant.now()));
+                sessionId, "assistant", answer, newTokens, resolvedModel, contextCount,
+                java.time.Instant.now(), citations));
         long elapsed = System.currentTimeMillis() - start;
         sessions.save(new ChatSession(sessionId, agent.id(), agent.name(), "success", turns, 0, totalTokens,
                 elapsed, LocalTime.now().format(TIME), topic,

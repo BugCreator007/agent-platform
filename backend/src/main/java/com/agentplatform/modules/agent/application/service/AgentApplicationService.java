@@ -86,7 +86,8 @@ public class AgentApplicationService {
             agent.bindModel(request.providerId(), request.modelId(), request.model());
         }
         // 模型绑定之后再单独应用工具/知识库，避免被 bindModel 的默认行为覆盖
-        agent.update(null, null, null, null, null, request.tools(), request.kb());
+        agent.update(null, null, null, null, null, request.tools(), request.kb(),
+                request.citationKb() == null ? request.kb() : request.citationKb());
         repository.save(agent);
         return AgentSummary.from(agent);
     }
@@ -102,7 +103,8 @@ public class AgentApplicationService {
     public AgentSummary update(String id, UpdateAgentRequest request) {
         Agent agent = require(id);
         agent.update(request.name(), request.model(), request.providerId(), request.modelId(),
-                request.owner(), request.team(), request.prompt(), request.tools(), request.kb());
+                request.owner(), request.team(), request.prompt(), request.tools(), request.kb(),
+                request.citationKb());
         repository.save(agent);
         return AgentSummary.from(agent);
     }

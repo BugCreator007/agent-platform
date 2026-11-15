@@ -112,8 +112,18 @@ public class KnowledgeRetrievalService {
             Document doc = docs.get(chunk.documentId());
             // 有原始向量分数时展示相似度，否则展示 RRF 融合分数；统一截断到 0.99 避免展示为 1.0
             double vectorScore = rawVector.getOrDefault(chunk.id(), scores.getOrDefault(chunk.id(), 0.0));
-            hits.add(new RetrievalHit(doc == null ? chunk.documentId() : doc.name(), chunk.chunkIndex(),
-                    Math.min(0.99, vectorScore), chunk.content()));
+            String sourceType = doc == null || doc.sourceType() == null ? "FILE" : doc.sourceType();
+            String url = null;
+            if (doc != null) {
+                if ("WEB".equalsIgnoreCase(sourceType) && doc.sourceUrl() != null && !doc.sourceUrl().isBlank()) {
+                    url = doc.sourceUrl();
+                } else {
+                    // 上传文件使用受保护的下载接口，前端携带登录 Token 下载。
+                    url = "/api/v1/documents/" + doc.id() + "/download";
+                }
+            }
+            hits.add(new RetrievalHit(chunk.documentId(), doc == null ? chunk.documentId() : doc.name(),
+                    chunk.chunkIndex(), Math.min(0.99, vectorScore), chunk.content(), url, sourceType));
         }
         return new RetrievalResult(query, System.currentTimeMillis() - start,
                 dataset.retrievalMode(), dataset.topK(), dataset.threshold(), hits);

@@ -3,6 +3,7 @@ package com.agentplatform.modules.knowledge.application.service;
 import com.agentplatform.common.error.BusinessException;
 import com.agentplatform.common.error.ErrorCode;
 import com.agentplatform.modules.knowledge.application.query.DatasetSummary;
+import com.agentplatform.modules.knowledge.application.query.DocumentDownload;
 import com.agentplatform.modules.knowledge.application.query.KnowledgeRetrievalService;
 import com.agentplatform.modules.knowledge.application.query.RetrievalResult;
 import com.agentplatform.modules.knowledge.domain.model.Dataset;
@@ -369,6 +370,22 @@ public class KnowledgeApplicationService {
      * @param id 文档 ID
      * @throws BusinessException 文档不存在或所属数据集不存在时抛出 NOT_FOUND
      */
+    /**
+     * 读取文档原始文件，供登录用户下载和对话引用链接使用。
+     *
+     * @param id 文档 ID
+     * @return 文件名、MIME 与字节内容
+     * @throws BusinessException 文档不存在或没有可下载文件时抛出
+     */
+    public DocumentDownload downloadDocument(String id) {
+        Document document = repository.findDocument(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "文档不存在: " + id));
+        if (document.storageKey() == null || document.storageKey().isBlank()) {
+            throw new BusinessException(ErrorCode.STATE_CONFLICT, "该文档没有可下载的原始文件");
+        }
+        return new DocumentDownload(document.name(), document.contentType(), storage.read(document.storageKey()));
+    }
+
     public void deleteDocument(String id) {
         Document document = repository.findDocument(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "文档不存在: " + id));

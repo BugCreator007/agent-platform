@@ -38,6 +38,8 @@ public class Agent {
     private List<String> tools;
     /** 关联的知识库编码列表，不可变列表。 */
     private List<String> kb;
+    /** 需要返回文档引用的知识库编码列表（必须属于 kb）。 */
+    private List<String> citationKb;
     /** 累计会话数（运营指标，由运行时统计写入）。 */
     private long sessions;
     /** 成功率百分比（运营指标，98.7 表示 98.7%）。 */
@@ -56,6 +58,15 @@ public class Agent {
                   String model, String providerId, String modelId, String owner, String team,
                   String release, String prompt, List<String> tools, List<String> kb,
                   long sessions, double success, String p95, double cost, String updated) {
+        this(id, code, name, status, version, model, providerId, modelId, owner, team, release,
+                prompt, tools, kb, kb, sessions, success, p95, cost, updated);
+    }
+
+    private Agent(String id, String code, String name, AgentStatus status, String version,
+                  String model, String providerId, String modelId, String owner, String team,
+                  String release, String prompt, List<String> tools, List<String> kb,
+                  List<String> citationKb, long sessions, double success, String p95, double cost,
+                  String updated) {
         this.id = id;
         this.code = code;
         this.name = name;
@@ -68,8 +79,11 @@ public class Agent {
         this.team = team;
         this.release = release;
         this.prompt = prompt;
-        this.tools = List.copyOf(tools);
-        this.kb = List.copyOf(kb);
+        this.tools = List.copyOf(tools == null ? List.of() : tools);
+        this.kb = List.copyOf(kb == null ? List.of() : kb);
+        List<String> configuredCitations = citationKb == null ? List.of() : citationKb;
+        this.citationKb = List.copyOf(configuredCitations.stream()
+                .filter(citation -> this.kb.contains(citation)).distinct().toList());
         this.sessions = sessions;
         this.success = success;
         this.p95 = p95;
@@ -140,7 +154,41 @@ public class Agent {
                                 List<String> tools, List<String> kb, long sessions, double success,
                                 String p95, double cost, String updated) {
         return new Agent(id, code, name, status, version, model, providerId, modelId, owner, team,
-                release, prompt, tools, kb, sessions, success, p95, cost, updated);
+                release, prompt, tools, kb, kb, sessions, success, p95, cost, updated);
+    }
+
+    /**
+     * 从持久化数据完整恢复聚合（含知识库引用配置）。
+     *
+     * @param id         智能体唯一标识
+     * @param code       业务编码
+     * @param name       展示名称
+     * @param status     生命周期状态
+     * @param version    版本号
+     * @param model      模型展示名称
+     * @param providerId 模型厂商标识
+     * @param modelId    厂商侧模型标识
+     * @param owner      负责人
+     * @param team       所属团队
+     * @param release    发布状态展示文案
+     * @param prompt     系统提示词
+     * @param tools      工具编码列表
+     * @param kb         知识库编码列表
+     * @param citationKb 需要返回文档引用的知识库编码列表
+     * @param sessions   累计会话数
+     * @param success    成功率百分比
+     * @param p95        P95 耗时展示文本
+     * @param cost       累计成本
+     * @param updated    最近更新时间展示文本
+     * @return 恢复出的聚合实例
+     */
+    public static Agent restore(String id, String code, String name, AgentStatus status,
+                                String version, String model, String providerId, String modelId,
+                                String owner, String team, String release, String prompt,
+                                List<String> tools, List<String> kb, List<String> citationKb,
+                                long sessions, double success, String p95, double cost, String updated) {
+        return new Agent(id, code, name, status, version, model, providerId, modelId, owner, team,
+                release, prompt, tools, kb, citationKb, sessions, success, p95, cost, updated);
     }
 
     /**
@@ -154,7 +202,7 @@ public class Agent {
     public static Agent draft(String id, String code, String name) {
         return new Agent(id, code, name, AgentStatus.DRAFT, "v1", "未绑定模型",
                 null, null, "顾先路", "客服平台", "草稿", "你是企业的智能助手。",
-                List.of(), List.of(), 0, 0, "—", 0, "刚刚");
+                List.of(), List.of(), List.of(), 0, 0, "—", 0, "刚刚");
     }
 
     /**
@@ -202,7 +250,25 @@ public class Agent {
      */
     public void update(String name, String model, String owner, String team,
                        String prompt, List<String> tools, List<String> kb) {
-        update(name, model, null, null, owner, team, prompt, tools, kb);
+        update(name, model, null, null, owner, team, prompt, tools, kb, null);
+    }
+
+    /**
+     * 局部更新（兼容旧调用：不携带模型绑定信息，但可更新引用配置）。
+     *
+     * @param name       新名称
+     * @param model      新模型展示名
+     * @param owner      新负责人
+     * @param team       新团队
+     * @param prompt     新提示词
+     * @param tools      新工具列表
+     * @param kb         新知识库列表
+     * @param citationKb 需要返回文档引用的知识库列表
+     */
+    public void update(String name, String model, String owner, String team,
+                       String prompt, List<String> tools, List<String> kb,
+                       List<String> citationKb) {
+        update(name, model, null, null, owner, team, prompt, tools, kb, citationKb);
     }
 
     /**
@@ -223,6 +289,26 @@ public class Agent {
      */
     public void update(String name, String model, String providerId, String modelId,
                        String owner, String team, String prompt, List<String> tools, List<String> kb) {
+        update(name, model, providerId, modelId, owner, team, prompt, tools, kb, null);
+    }
+
+    /**
+     * 局部更新智能体配置（含知识库引用开关）。
+     *
+     * @param name       新名称，null/空白表示不修改
+     * @param model      新模型展示名，null/空白表示不修改
+     * @param providerId 新模型厂商标识，null 表示不修改
+     * @param modelId    新厂商模型标识，null 表示不修改
+     * @param owner      新负责人，null/空白表示不修改
+     * @param team       新团队，null/空白表示不修改
+     * @param prompt     新提示词，null 表示不修改
+     * @param tools      新工具列表，null 表示不修改
+     * @param kb         新知识库列表，null 表示不修改
+     * @param citationKb 需要返回文档引用的知识库列表，null 表示保留并按新 kb 过滤
+     */
+    public void update(String name, String model, String providerId, String modelId,
+                       String owner, String team, String prompt, List<String> tools,
+                       List<String> kb, List<String> citationKb) {
         if (name != null && !name.isBlank()) this.name = name;
         if (model != null && !model.isBlank()) this.model = model;
         if (providerId != null) this.providerId = providerId;
@@ -232,6 +318,10 @@ public class Agent {
         if (prompt != null) this.prompt = prompt;
         if (tools != null) this.tools = List.copyOf(tools);
         if (kb != null) this.kb = List.copyOf(kb);
+        // 引用开关必须始终是 kb 的子集，避免知识库解绑后残留引用配置。
+        List<String> nextCitations = citationKb == null ? this.citationKb : citationKb;
+        this.citationKb = List.copyOf(nextCitations.stream()
+                .filter(this.kb::contains).distinct().toList());
         this.updated = "刚刚";
     }
 
@@ -291,6 +381,8 @@ public class Agent {
     public List<String> tools() { return tools; }
     /** @return 知识库编码列表（不可变） */
     public List<String> kb() { return kb; }
+    /** @return 需要返回文档引用的知识库编码列表（不可变） */
+    public List<String> citationKb() { return citationKb; }
     /** @return 累计会话数 */
     public long sessions() { return sessions; }
     /** @return 成功率百分比 */

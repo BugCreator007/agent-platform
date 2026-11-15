@@ -48,6 +48,8 @@ public class AgentEntity {
     @TableField(typeHandler = StringListTypeHandler.class) private List<String> tools;
     /** 知识库编码列表，经 {@link StringListTypeHandler} 与 TEXT 列互转。 */
     @TableField(typeHandler = StringListTypeHandler.class) private List<String> kb;
+    /** 需要返回文档引用的知识库编码列表。 */
+    @TableField(value = "citation_kb", typeHandler = StringListTypeHandler.class) private List<String> citationKb;
     /** 累计会话数。 */
     private long sessions;
     /** 成功率百分比。 */
@@ -70,7 +72,7 @@ public class AgentEntity {
         e.id = a.id(); e.code = a.code(); e.name = a.name(); e.status = a.status().name().toLowerCase();
         e.version = a.version(); e.model = a.model(); e.providerId = a.providerId(); e.modelId = a.modelId();
         e.owner = a.owner(); e.team = a.team();
-        e.releaseStatus = a.release(); e.prompt = a.prompt(); e.tools = a.tools(); e.kb = a.kb();
+        e.releaseStatus = a.release(); e.prompt = a.prompt(); e.tools = a.tools(); e.kb = a.kb(); e.citationKb = a.citationKb();
         e.sessions = a.sessions(); e.success = a.success(); e.p95 = a.p95(); e.cost = a.cost(); e.updated = a.updated();
         return e;
     }
@@ -85,7 +87,8 @@ public class AgentEntity {
     public Agent toDomain() {
         return Agent.restore(id, code, name, AgentStatus.valueOf(status.toUpperCase()), version, model,
                 providerId, modelId, owner, team, releaseStatus, prompt, tools == null ? List.of() : tools,
-                kb == null ? List.of() : kb, sessions, success, p95, cost, updated);
+                kb == null ? List.of() : kb, citationKb == null ? List.of() : citationKb,
+                sessions, success, p95, cost, updated);
     }
 
     /** @return 主键 */

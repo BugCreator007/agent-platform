@@ -67,6 +67,28 @@ export const api = {
 }
 
 /** 当前登录用户信息 */
+/**
+ * 下载文件类知识库引用：链接本身是受保护接口，需携带管理端 Bearer Token。
+ *
+ * @param citation 文档引用
+ */
+export async function downloadCitation(citation: Citation) {
+  const token = auth.token()
+  const response = await fetch(citation.url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new Error(`文档下载失败（${response.status}）`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = citation.name || 'document'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 export interface AuthUser { id: string; username: string; displayName: string; roles: string[] }
 
 /** 登录接口返回：access token 及用户资料 */
@@ -98,6 +120,15 @@ export interface Agent {
   prompt: string
   tools: string[]
   kb: string[]
+  citationKb: string[]
+}
+
+/** 知识库文档引用 */
+export interface Citation {
+  documentId: string
+  name: string
+  url: string
+  sourceType: 'WEB' | 'FILE' | string
 }
 
 /** 聊天会话摘要，trace 为本次会话的执行轨迹 */
@@ -326,6 +357,7 @@ export interface SessionMessage {
   model: string | null
   contextCount: number
   createdAt: string
+  citations?: Citation[]
 }
 
 /** 工作流运行实例，resumeAt 表示审批/定时恢复时间 */

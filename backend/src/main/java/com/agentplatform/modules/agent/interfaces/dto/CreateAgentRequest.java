@@ -17,6 +17,7 @@ import jakarta.validation.constraints.Size;
  * @param prompt     系统提示词，可选；为空时使用默认提示词
  * @param tools      工具编码列表，可选
  * @param kb         知识库编码列表，可选
+ * @param citationKb 需要返回文档引用的知识库编码列表，可选
  */
 public record CreateAgentRequest(
         @NotBlank @Size(max = 120) String name,
@@ -28,6 +29,7 @@ public record CreateAgentRequest(
         String team,
         String prompt,
         java.util.List<String> tools,
-        java.util.List<String> kb
+        java.util.List<String> kb,
+        java.util.List<String> citationKb
 ) {
 }

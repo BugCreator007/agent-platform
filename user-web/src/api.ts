@@ -26,6 +26,14 @@ export interface UserAgent {
   knowledgeBases: number
 }
 
+/** 知识库文档引用 */
+export interface Citation {
+  documentId: string
+  name: string
+  url: string
+  sourceType: 'WEB' | 'FILE' | string
+}
+
 /** 后端持久化的会话消息 */
 export interface BackendMessage {
   id: string
@@ -36,6 +44,7 @@ export interface BackendMessage {
   model: string
   contextCount: number
   createdAt: string
+  citations?: Citation[]
 }
 
 /** 后端统一响应包 */
@@ -180,6 +189,28 @@ function dispatch(block: { event: string; data: string }, handlers: StreamHandle
     default:
       break
   }
+}
+
+/**
+ * 下载文件类引用：浏览器直接打开链接不会带 Bearer Token，
+ * 因此用 fetch 携带登录态获取 Blob，再触发临时下载。
+ *
+ * @param citation 文件引用
+ */
+export async function downloadCitation(citation: Citation) {
+  const response = await fetch(citation.url, {
+    headers: session.token() ? { Authorization: `Bearer ${session.token()}` } : {},
+  })
+  if (!response.ok) throw new Error(`文档下载失败（${response.status}）`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = citation.name || 'document'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
 /**
