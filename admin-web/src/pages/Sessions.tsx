@@ -12,6 +12,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 运行追踪页：会话列表筛选、指标汇总、CSV 导出与调用链详情抽屉 */
 export function SessionsPage() {
   const [status, setStatus] = useState('all')
   const [agent, setAgent] = useState('all')
@@ -19,6 +20,7 @@ export function SessionsPage() {
   const { data, isLoading } = useQuery({ queryKey: ['sessions'], queryFn: () => api.get<ChatSession[]>('/sessions') })
 
   const sessions = data ?? []
+  // 从会话数据中提取去重后的智能体列表，用于下拉筛选
   const agents = useMemo(() => {
     const map = new Map<string, string>()
     sessions.forEach((s) => map.set(s.agentId, s.agentName))
@@ -26,9 +28,11 @@ export function SessionsPage() {
   }, [sessions])
   const filtered = sessions.filter((s) => (status === 'all' || s.status === status) && (agent === 'all' || s.agentId === agent))
   const failed = sessions.filter((s) => s.status === 'failed' || s.status === 'timeout').length
+  // 平均耗时只统计已结束（有 ms 且非超时）的会话
   const timed = sessions.filter((s) => s.ms && s.status !== 'timeout')
   const avg = timed.length ? Math.round(timed.reduce((sum, s) => sum + s.ms, 0) / timed.length) : 0
 
+  /** 将当前筛选结果导出为 CSV（带 UTF-8 BOM，便于 Excel 打开中文） */
   const exportCsv = () => {
     const rows = [['会话ID', '智能体', '状态', '问题', '轮次', '工具', 'Tokens', '耗时', '时间']]
     filtered.forEach((s) => rows.push([s.id, s.agentName, s.status, s.topic, String(s.turns), String(s.tools), String(s.tokens), String(s.ms), s.time]))

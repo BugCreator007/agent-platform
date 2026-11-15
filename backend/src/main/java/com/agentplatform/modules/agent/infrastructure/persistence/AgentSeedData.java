@@ -8,9 +8,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 智能体演示种子数据构造器（infrastructure 层）。
+ * <p>仅在首次启动、agents 表为空时由 {@link AgentDataSeeder} 读取并落库，
+ * 本身不是运行时存储；不要在业务代码中直接依赖它。演示数据中的 id（a1~a8）
+ * 与发布、评测模块的种子数据保持一致，便于跨模块关联展示。</p>
+ */
 public class AgentSeedData {
+    /** 种子数据的内存容器，key 为智能体 id，仅用于构造期暂存。 */
     private final Map<String, Agent> store = new ConcurrentHashMap<>();
 
+    /**
+     * 构造并填充 8 条演示智能体，覆盖运行、灰度、暂停、草稿四种状态。
+     * 每条记录创建后会通过 {@link AgentModelBinder} 按模型名推断厂商绑定。
+     */
     public AgentSeedData() {
         seed("a1", "svc-ticket", "售后工单助手", AgentStatus.RUNNING, "v25", "Claude Sonnet 5.5",
                 "顾先路", "客服平台", "灰度 20%",
@@ -48,6 +59,27 @@ public class AgentSeedData {
                 List.of("bi.query", "order.query"), List.of("kb-risk"), 332, 97.9, "1.60s", 610, "1 天前");
     }
 
+    /**
+     * 构造单条种子记录：先恢复聚合，再补齐模型厂商绑定，最后放入内存容器。
+     *
+     * @param id       智能体 id（固定演示 id）
+     * @param code     业务编码
+     * @param name     名称
+     * @param status   生命周期状态
+     * @param version  版本号
+     * @param model    模型展示名
+     * @param owner    负责人
+     * @param team     团队
+     * @param release  发布文案
+     * @param prompt   提示词
+     * @param tools    工具列表
+     * @param kb       知识库列表
+     * @param sessions 会话数
+     * @param success  成功率
+     * @param p95      P95 耗时文案
+     * @param cost     成本
+     * @param updated  更新时间文案
+     */
     private void seed(String id, String code, String name, AgentStatus status, String version,
                       String model, String owner, String team, String release, String prompt,
                       List<String> tools, List<String> kb, long sessions, double success,
@@ -58,18 +90,34 @@ public class AgentSeedData {
         store.put(id, agent);
     }
 
+    /**
+     * @param id 智能体 id
+     * @return 内存中的种子记录，不存在时为空
+     */
     public Optional<Agent> findById(String id) {
         return Optional.ofNullable(store.get(id));
     }
 
+    /**
+     * @param code 业务编码
+     * @return 编码匹配的种子记录，不存在时为空
+     */
     public Optional<Agent> findByCode(String code) {
         return store.values().stream().filter(a -> a.code().equals(code)).findFirst();
     }
 
+    /**
+     * @return 全部种子记录的快照
+     */
     public List<Agent> findAll() {
         return List.copyOf(store.values());
     }
 
+    /**
+     * 写入或覆盖内存容器中的记录（仅构造期使用）。
+     *
+     * @param agent 智能体聚合
+     */
     public void save(Agent agent) {
         store.put(agent.id(), agent);
     }

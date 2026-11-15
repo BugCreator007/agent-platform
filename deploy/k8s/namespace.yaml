@@ -1,3 +1,4 @@
+# 独立命名空间，隔离 Agent 平台资源
 apiVersion: v1
 kind: Namespace
 metadata:

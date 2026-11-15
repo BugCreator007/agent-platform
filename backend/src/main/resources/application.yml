@@ -1,7 +1,9 @@
+# HTTP 服务端口与优雅停机配置
 server:
   port: 8081
   shutdown: graceful
 
+# Spring 与数据源/Redis/Flyway 基础配置
 spring:
   application:
     name: agent-backend
@@ -32,6 +34,7 @@ spring:
     visibility:
       field: any
 
+# MyBatis-Plus：XML 位置、驼峰映射、主键与更新策略
 mybatis-plus:
   mapper-locations: classpath*:mapper/*.xml
   configuration:
@@ -42,6 +45,7 @@ mybatis-plus:
       id-type: input
       update-strategy: always
 
+# Actuator 健康检查、指标与 OpenTelemetry 链路配置
 management:
   endpoints:
     web:
@@ -60,10 +64,12 @@ management:
     tags:
       application: agent-backend
 
+# OpenAPI/Swagger 文档入口
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+# 业务配置：跨域、演示数据、模型、检索、存储、安全
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}

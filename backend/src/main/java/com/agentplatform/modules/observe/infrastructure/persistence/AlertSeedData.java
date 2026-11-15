@@ -7,9 +7,19 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 告警演示种子数据（infrastructure 层）。
+ *
+ * <p>以内存 Map 提供 6 条演示告警，仅供首次启动写入数据库，
+ * 不参与运行时读写。</p>
+ */
 public class AlertSeedData {
+    /** 演示告警存储，key 为告警 ID。 */
     private final Map<String, Alert> store = new ConcurrentHashMap<>();
 
+    /**
+     * 构造并填充演示告警（覆盖 active/ack/resolved 三种状态）。
+     */
     public AlertSeedData() {
         seed("al1", "critical", "工具错误率突增", "tool.err_rate > 1%", "risk.score · 退款审核 Copilot",
                 "14:21", "11 分钟前", "active", "1.2% / 5min",
@@ -26,11 +36,34 @@ public class AlertSeedData {
         seed("al6", "warning", "会话超时率上升", "session.timeout > 1%", "商家经营周报",
                 "11:20", "3 小时前", "resolved", "1.4% → 0.2%", "数据平台慢查询导致，已通过限流恢复。");
     }
+
+    /**
+     * 登记一条演示告警。
+     */
     private void seed(String id, String severity, String title, String rule, String target,
                       String time, String ago, String status, String metric, String detail) {
         store.put(id, new Alert(id, severity, title, rule, target, time, ago, status, metric, detail));
     }
+
+    /**
+     * 全部演示告警。
+     *
+     * @return 告警列表副本
+     */
     public List<Alert> findAll() { return List.copyOf(store.values()); }
+
+    /**
+     * 按 ID 查询演示告警。
+     *
+     * @param id 告警 ID
+     * @return 告警（可能为空）
+     */
     public Optional<Alert> findById(String id) { return Optional.ofNullable(store.get(id)); }
+
+    /**
+     * 写入/覆盖演示告警。
+     *
+     * @param alert 告警
+     */
     public void save(Alert alert) { store.put(alert.id(), alert); }
 }

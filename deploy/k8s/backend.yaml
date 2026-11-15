@@ -1,3 +1,4 @@
+# 后端 Deployment：滚动更新、探针与资源限制
 apiVersion: apps/v1
 kind: Deployment
 metadata:

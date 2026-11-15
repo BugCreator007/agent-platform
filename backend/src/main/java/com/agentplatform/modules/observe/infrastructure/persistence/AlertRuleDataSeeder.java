@@ -9,11 +9,32 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * 告警规则演示种子初始化器（infrastructure 层）。
+ *
+ * <p>仅在 {@code app.demo.seed} 开启（默认）且规则表为空时写入四条默认规则，
+ * 覆盖错误率、P95 延迟、月度预算与模型额度四类指标。</p>
+ */
 @Component
 @ConditionalOnProperty(name = "app.demo.seed", matchIfMissing = true)
 public class AlertRuleDataSeeder implements ApplicationRunner {
     private final AlertRuleRepository repository;
+
+    /**
+     * 构造初始化器。
+     *
+     * @param repository 告警规则仓储端口
+     */
     public AlertRuleDataSeeder(AlertRuleRepository repository) { this.repository = repository; }
+
+    /**
+     * 应用启动后写入默认告警规则（规则表为空时）。
+     *
+     * <p>规则中的 metric 必须与 {@code AlertRuleService} 的指标解析逻辑对应，
+     * 否则评估结果恒为 0 不会触发。</p>
+     *
+     * @param args 启动参数（未使用）
+     */
     @Override public void run(ApplicationArguments args) {
         if (!repository.findAll().isEmpty()) return;
         List.of(

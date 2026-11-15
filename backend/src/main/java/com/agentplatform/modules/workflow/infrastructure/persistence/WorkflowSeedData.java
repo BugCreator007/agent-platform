@@ -8,9 +8,24 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 流程演示种子数据目录。
+ *
+ * <p>所属层：infrastructure 基础设施层。以内存 Map 提供一组内置流程定义（销售工单、退款审核、
+ * 发票重开、周报、风控、质检、天气、投放素材），仅用于首次启动初始化数据库，
+ * 不参与运行时读写；运行时状态一律以数据库仓储为准。</p>
+ *
+ * <p>种子节点覆盖 START/KNOWLEDGE/MODEL/CONDITION/TOOL/APPROVAL/SUBFLOW 之外的
+ * NOTIFY/JOIN/TIMER 等类型示例；其中 {@code wf-weather} 显式配置了
+ * {@code next/trueNext/falseNext}，用于演示条件分支与汇聚。</p>
+ */
 public class WorkflowSeedData {
+    /** 种子流程索引：流程 ID → 流程定义；ConcurrentHashMap 仅用于安全发布。 */
     private final Map<String, Workflow> store = new ConcurrentHashMap<>();
 
+    /**
+     * 构造并填充内置流程定义。
+     */
     public WorkflowSeedData() {
         store.put("wf-ticket", new Workflow("wf-ticket", "售后工单处理流程", "published",
                 "会话意图触发", 1842, 98.2, "顾先路", "v12", "今天 09:42",
@@ -58,6 +73,7 @@ public class WorkflowSeedData {
                 new WorkflowNode("kb", "KNOWLEDGE", "检索质检规则", "kb-ticket"),
                 new WorkflowNode("model", "MODEL", "五维评分", "Claude Sonnet 5.5"),
                 new WorkflowNode("end", "END", "写回结果", "质检工单"))));
+        // 显式图示例：条件节点按 trueNext/falseNext 分流，JOIN 汇聚两条路径后再进入 END。
         store.put("wf-weather", new Workflow("wf-weather", "上海天气查询", "published", "手动触发",
                 0, 0, "顾先路", "v1", "刚刚", List.of(
                 new WorkflowNode("start", "START", "接收地址", "用户提交地址",
@@ -82,7 +98,25 @@ public class WorkflowSeedData {
                 new WorkflowNode("end", "END", "结束", "输出素材"))));
     }
 
+    /**
+     * 返回全部种子流程定义。
+     *
+     * @return 流程定义列表（副本，修改不影响内部存储）
+     */
     public List<Workflow> findAll() { return List.copyOf(store.values()); }
+
+    /**
+     * 按 ID 查询种子流程定义。
+     *
+     * @param id 流程 ID
+     * @return 流程定义（可能为空）
+     */
     public Optional<Workflow> findById(String id) { return Optional.ofNullable(store.get(id)); }
+
+    /**
+     * 写入/覆盖种子流程定义（仅用于初始化流程内部）。
+     *
+     * @param workflow 流程定义
+     */
     public void save(Workflow workflow) { store.put(workflow.id(), workflow); }
 }

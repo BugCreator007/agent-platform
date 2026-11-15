@@ -1,3 +1,4 @@
+# 构建阶段：Node 编译 React 静态资源
 FROM node:22-alpine AS build
 WORKDIR /workspace
 ENV NODE_OPTIONS=--max-old-space-size=512
@@ -6,6 +7,7 @@ RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 
+# 运行阶段：Nginx 托管静态资源并反向代理 /api
 FROM nginx:1.27-alpine
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/dist /usr/share/nginx/html

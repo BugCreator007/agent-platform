@@ -1,3 +1,4 @@
+# 管理端 Deployment 与 Service：Nginx 静态站点
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -9,10 +9,22 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 内存中的演示种子数据源（基础设施层）。
+ *
+ * <p>仅在首次启动时由 {@link KnowledgeDataSeeder} 读取并写入持久层，
+ * 不参与运行时业务读写，也不作为仓储实现注入。提供与知识库仓储相似的内存查询方法，
+ * 便于种子初始化代码复用同一套遍历逻辑。</p>
+ */
 public class KnowledgeSeedData {
+    /** 数据集种子数据，按 ID 索引。 */
     private final Map<String, Dataset> datasets = new ConcurrentHashMap<>();
+    /** 文档种子数据，按 ID 索引。 */
     private final Map<String, Document> documents = new ConcurrentHashMap<>();
 
+    /**
+     * 初始化 5 个演示数据集与 12 份演示文档。
+     */
     public KnowledgeSeedData() {
         seedDataset(Dataset.restore("kb-refund", "售后政策库", "客服平台", "售后政策、退款规则与执行口径。",
                 "bge-m3", "HNSW", "COSINE", "默认解析", "标题层级", 512, 64, "hybrid", 4, 0.8,
@@ -44,18 +56,58 @@ public class KnowledgeSeedData {
         seedDoc("doc-risk-2", "kb-risk", "高风险交易处置 SOP.pdf", 3, 35, "1.1 MB", "4 天前");
     }
 
+    /**
+     * 登记一个种子数据集。
+     *
+     * @param dataset 数据集
+     */
     private void seedDataset(Dataset dataset) { datasets.put(dataset.id(), dataset); }
+    /**
+     * 登记一份种子文档。
+     *
+     * @param id        文档 ID
+     * @param datasetId 所属数据集 ID
+     * @param name      文档名称
+     * @param version   版本号
+     * @param chunks    分块数
+     * @param size      展示用大小
+     * @param updated   更新时间展示文本
+     */
     private void seedDoc(String id, String datasetId, String name, int version, long chunks, String size, String updated) {
         documents.put(id, new Document(id, datasetId, name, version, chunks, size, "ready", updated));
     }
 
+    /**
+     * @return 全部种子数据集
+     */
     public List<Dataset> findAllDatasets() { return List.copyOf(datasets.values()); }
+    /**
+     * @param id 数据集 ID
+     * @return 数据集，不存在时为空
+     */
     public Optional<Dataset> findDataset(String id) { return Optional.ofNullable(datasets.get(id)); }
+    /**
+     * @param dataset 数据集
+     */
     public void saveDataset(Dataset dataset) { datasets.put(dataset.id(), dataset); }
+    /**
+     * @param datasetId 数据集 ID
+     * @return 该数据集下的文档列表
+     */
     public List<Document> findDocuments(String datasetId) {
         return documents.values().stream().filter(d -> d.datasetId().equals(datasetId)).toList();
     }
+    /**
+     * @param id 文档 ID
+     * @return 文档，不存在时为空
+     */
     public Optional<Document> findDocument(String id) { return Optional.ofNullable(documents.get(id)); }
+    /**
+     * @param document 文档
+     */
     public void saveDocument(Document document) { documents.put(document.id(), document); }
+    /**
+     * @param id 文档 ID
+     */
     public void deleteDocument(String id) { documents.remove(id); }
 }

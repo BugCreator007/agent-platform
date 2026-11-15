@@ -14,6 +14,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 工具与 MCP 页：工具注册与健康检查、MCP 服务接入/同步及工具目录管理 */
 export function ToolsPage() {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState('all')
@@ -27,24 +28,30 @@ export function ToolsPage() {
 
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api.get<Tool[]>('/tools') })
   const mcpServers = useQuery({ queryKey: ['mcp-servers'], queryFn: () => api.get<McpServer[]>('/mcp-servers') })
+  // MCP 工具列表只在选中某个服务后才请求，避免无效调用
   const mcpTools = useQuery({ queryKey: ['mcp-tools', mcpDetail?.id], queryFn: () => api.get<McpTool[]>(`/mcp-servers/${mcpDetail!.id}/tools`), enabled: !!mcpDetail })
+  /** 同时刷新工具目录与 MCP 服务缓存 */
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ['tools'] }); queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }) }
 
+  /** 启用 / 停用工具 */
   const toggle = useMutation({
     mutationFn: (name: string) => api.post<Tool>(`/tools/${encodeURIComponent(name)}/toggle`),
     onSuccess: (t) => { toast(`${t.name} 已${t.enabled ? '启用' : '停用'}`); refresh(); if (selected?.name === t.name) setSelected(t) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 触发全部工具的健康检查 */
   const check = useMutation({
     mutationFn: () => api.post<Tool[]>('/tools/check'),
     onSuccess: () => { toast('工具健康检查完成'); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 注册新工具 */
   const create = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post<Tool>('/tools', body),
     onSuccess: () => { toast('工具已注册'); setAddOpen(false); setToolForm({ name: '', type: 'HTTP', owner: '客服平台', description: '', endpoint: '' }); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 执行 MCP 握手并同步工具列表，成功后刷新服务与工具缓存 */
   const connectMcp = useMutation({
     mutationFn: (id: string) => api.post<McpServer>(`/mcp-servers/${id}/connect`),
     onSuccess: (server) => {
@@ -55,6 +62,7 @@ export function ToolsPage() {
     },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 创建 MCP 服务后立即触发一次连接验证 */
   const createMcp = useMutation({
     mutationFn: () => api.post<McpServer>('/mcp-servers', mcpForm),
     onSuccess: (server) => {
@@ -64,11 +72,13 @@ export function ToolsPage() {
     },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 删除 MCP 服务 */
   const deleteMcp = useMutation({
     mutationFn: (id: string) => api.del<void>(`/mcp-servers/${id}`),
     onSuccess: () => { toast('MCP 服务已删除'); queryClient.invalidateQueries({ queryKey: ['mcp-servers'] }); queryClient.invalidateQueries({ queryKey: ['tools'] }) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 启用 / 停用某个 MCP 工具 */
   const toggleMcpTool = useMutation({
     mutationFn: (id: string) => api.put<McpTool>(`/mcp-tools/${id}/toggle`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mcp-tools', mcpDetail?.id] }); queryClient.invalidateQueries({ queryKey: ['tools'] }) },
@@ -80,6 +90,7 @@ export function ToolsPage() {
   const healthy = list.filter((t) => t.health === 'healthy').length
   const degraded = list.filter((t) => t.health === 'degraded').length
   const totalCalls = list.reduce((s, t) => s + t.calls, 0)
+  // 工具类型去重后作为筛选标签
   const types = useMemo(() => Array.from(new Set(list.map((t) => t.type))), [list])
 
   return (

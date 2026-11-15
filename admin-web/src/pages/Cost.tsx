@@ -12,6 +12,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 成本与用量页：成本汇总、预算使用、按模型/智能体拆解与节流建议 */
 export function CostPage() {
   const queryClient = useQueryClient()
   const [budgetOpen, setBudgetOpen] = useState(false)
@@ -22,15 +23,18 @@ export function CostPage() {
   const data = cost.data
   const total = data?.total ?? 0
   const limit = data?.budget ?? 20000
+  // 预算使用百分比，限额为 0 时避免除零
   const pct = Math.round((total / Math.max(1, limit)) * 100)
   const daily = data?.daily ?? []
 
+  /** 保存月度预算；接口不可用时回退为本地演示态 */
   const saveBudget = useMutation({
     mutationFn: () => api.put<CostSummary>('/cost/budget', { budget }),
     onSuccess: () => { toast('月度预算已更新'); setBudgetOpen(false); queryClient.invalidateQueries({ queryKey: ['cost'] }) },
     onError: () => { toast('预算已保存到本地（演示）'); setBudgetOpen(false) },
   })
 
+  /** 导出按模型拆解的成本明细 CSV */
   const exportCsv = () => {
     const rows = [['模型', '成本', '占比'], ...(data?.models ?? []).map((m) => [m.name, String(m.value), `${m.share}%`])]
     const url = URL.createObjectURL(new Blob([`﻿${rows.map((r) => r.join(',')).join('\n')}`], { type: 'text/csv;charset=utf-8' }))
@@ -38,6 +42,7 @@ export function CostPage() {
     toast('成本明细已导出')
   }
 
+  // 成本接口未返回前显示加载占位
   if (!data) return <Panel><div className="empty">加载成本数据…</div></Panel>
 
   return (

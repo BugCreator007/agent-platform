@@ -1,24 +1,9 @@
 ---
 name: backend-mcp-integration
-description: 修改 MCP 服务接入、Streamable HTTP/SSE/stdio 客户端、工具发现、tools/call、MCP 工具目录或 Agent 工具调用循环时使用。
+description: 修改 MCP 服务接入、Streamable HTTP/SSE/stdio 客户端、initialize/tools/list/tools/call、工具目录同步、MCP 鉴权或 Agent 工具循环时使用。
 ---
 
 # MCP 接入开发
-
-## 当前实现
-
-MCP 已经落到 `tool` 模块，运行时可用：
-
-- Streamable HTTP
-- SSE
-- stdio
-- `initialize`
-- `notifications/initialized`
-- `tools/list`
-- `tools/call`
-- MCP Token AES-GCM 加密
-- 工具目录同步到 `tools` 表
-- Agent 运行时 function calling 循环
 
 ## 先读
 
@@ -28,28 +13,72 @@ MCP 已经落到 `tool` 模块，运行时可用：
   - `SseMcpSession`
   - `StdioMcpSession`
   - `McpUrlValidator`
-- `modules/tool/application/service/McpServerApplicationService.java`
-- `modules/tool/application/service/McpRuntimeService.java`
+  - `McpSession/McpToolDefinition/McpCallResult`
+- `modules/tool/application/service/{McpServerApplicationService,McpRuntimeService}.java`
+- `modules/tool/infrastructure/persistence/entity/McpServerEntity.java`
 - `modules/tool/interfaces/rest/McpController.java`
 - `modules/chat/application/runtime/AgentRuntimeService.java`
-- `modules/chat/infrastructure/ai/ModelGateway.java`
-- `modules/chat/infrastructure/ai/OpenAiCompatibleClient.java`
-- 前端 `pages/Tools.tsx`
+- `admin-web/src/pages/Tools.tsx`
 
 ## 数据表
 
 ```text
-mcp_servers       服务配置、传输方式、加密 Token、连接状态
-mcp_tools         发现到的工具、inputSchema、风险等级
-mcp_tool_calls    调用请求/响应、状态、耗时
+mcp_servers     id/name/transport/url/command/args/auth_type/secret_encrypted/status/enabled
+mcp_tools       server_id/tool_key/name/description/input_schema/enabled/risk_level
+mcp_tool_calls  server_id/tool_key/tool_name/request_json/response_json/status/duration_ms
 ```
 
 迁移：`V5__mcp_servers.sql`、`V6__mcp_server_enabled.sql`。
 
-## 管理接口
+## 传输
+
+### Streamable HTTP
+
+- `POST {url}`，`Content-Type: application/json`，`Accept: application/json, text/event-stream`。
+- 保存响应头 `Mcp-Session-Id`，后续请求带上。
+- 支持 JSON 或 SSE 响应。
+
+### SSE（legacy）
+
+- 先 `GET` SSE endpoint，等待 `event: endpoint` 获取 message endpoint。
+- 后续 `POST` 到该 endpoint。
+- 响应通过 SSE `message` 事件返回。
+
+### stdio
+
+- `ProcessBuilder` 启动命令，逐行 JSON-RPC。
+- 只允许 `MCP_STDIO_ALLOWED_COMMANDS` 中的命令（默认 npx/node/python/python3/uvx）。
+- 禁止拼接 shell 字符串，参数以数组传递。
+
+## JSON-RPC 生命周期
+
+```text
+initialize
+ → notifications/initialized
+ → tools/list
+ → tools/call
+```
+
+- 请求 ID 自增，响应按 ID 匹配。
+- 工具发现写入 `mcp_tools`。
+- 工具目录同步到 `tools` 表，key 为 `<serverId>.<toolName>`。
+- Agent 绑定工具后，只有 MCP 工具进入 function calling。
+
+## 安全
+
+- Token 使用 `SecretCipher` 加密到 `secret_encrypted`。
+- API 视图不返回 Token。
+- `McpUrlValidator` 限制 http/https，阻止 metadata/link-local；`MCP_ALLOW_PRIVATE_URLS=false` 时阻止内网/localhost。
+- stdio 命令白名单。
+- 工具输出视为不可信，防提示词注入。
+- 写工具（riskLevel=write）目前不会自动人工审批——这是待补能力。
+- 不在日志中输出 Token、Cookie、完整工具参数。
+
+## 管理 API
 
 ```text
 GET    /api/v1/mcp-servers
+GET    /api/v1/mcp-servers/{id}
 POST   /api/v1/mcp-servers
 PUT    /api/v1/mcp-servers/{id}
 DELETE /api/v1/mcp-servers/{id}
@@ -61,58 +90,55 @@ PUT    /api/v1/mcp-tools/{id}/toggle
 POST   /api/v1/mcp-tools:call
 ```
 
-连接成功后会：
-
-1. 执行 `initialize`。
-2. 发送 `notifications/initialized`。
-3. 执行 `tools/list`。
-4. 将工具写入 `mcp_tools`。
-5. 以 `<serverId>.<toolName>` 为 key 同步到 `tools` 目录，供智能体绑定。
+连接成功后执行 initialize → initialized → tools/list → 写目录。
 
 ## Agent 工具循环
 
-`AgentRuntimeService` 检测到 Agent 绑定了 MCP 工具后：
+`AgentRuntimeService`：
 
 ```text
-构建 tools schema
- → DeepSeek streamWithTools
+mcp.bindings(agent.tools())
+ → tool schema
+ → model.streamWithTools
  → 解析 delta.tool_calls
  → McpRuntimeService.execute
- → 写入 tool message
- → 再次调用模型
- → 流式输出最终回答
+ → 写 tool message
+ → 最多 4 轮
+ → 最终回答
 ```
 
-最多 4 轮工具循环。SSE 额外发送 `tool` 和 `tool-result` 事件。
-
-## 传输注意事项
-
-- Streamable HTTP：优先使用；需要 `Content-Type: application/json`、`Accept: application/json, text/event-stream`，并保存 `Mcp-Session-Id`。
-- SSE：先 GET 获取 `endpoint` 事件，再向 endpoint POST；响应通过 SSE `message` 事件返回。
-- stdio：只允许 `MCP_STDIO_ALLOWED_COMMANDS` 中的命令；不要拼接 shell 字符串，使用 `ProcessBuilder`。
-- 内部服务通常使用内网地址；`MCP_ALLOW_PRIVATE_URLS=false` 时禁止内网/本机。生产优先用网络策略和内部 CLB。
-
-## 安全
-
-- 不返回或打印 MCP Token。
-- Token 使用 `SecretCipher` 加密入库。
-- URL 只允许 http/https，拒绝链路本地/任意地址。
-- 工具输出视为不可信，防止提示词注入。
-- 写工具（riskLevel=write）目前会在工具列表中标记，但 Agent 自动执行；生产应增加人工审批。
-- 所有管理写操作由审计过滤器记录；MCP 调用记录写入 `mcp_tool_calls`。
+SSE 事件：`tool`、`tool-result`。
 
 ## 验证
 
-```bash
-# 连接并同步
-curl -X POST http://localhost:8081/api/v1/mcp-servers/{id}/connect \
-  -H "Authorization: Bearer <token>"
+Mock server 可验证三种传输：
 
-# 直接调用
-curl -X POST http://localhost:8081/api/v1/mcp-tools:call \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"toolKey":"mcp_xxx.weather.get","arguments":{"city":"上海"}}'
+```bash
+# Streamable HTTP 示例
+curl -X POST http://localhost:8081/api/v1/mcp-servers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"mock","transport":"streamable-http","url":"http://127.0.0.1:8765/mcp","authType":"none"}'
 ```
 
-已用 mock MCP 服务验证 Streamable HTTP、SSE、stdio 三种传输，以及 Agent 自动工具调用。
+连接后 `sync`，再 `mcp-tools:call`。stdio 需要本机允许命令。
+
+## 当前限制
+
+- OAuth 授权流程未实现。
+- MCP Resources/Prompts 未实现。
+- 写工具人工审批未实现。
+- 周期健康检查/失效工具清理未实现。
+- MCP 工具调用审计有记录，但没有完整重试/幂等。
+- 没有自动化 MCP 测试套件，主要靠 mock 手工验证。
+
+## Checklist
+
+- [ ] transport 客户端协议正确。
+- [ ] initialize/session id/SSE 解析正确。
+- [ ] Token 加密、脱敏、无日志。
+- [ ] URL/stdio 安全限制。
+- [ ] 工具目录同步与停用。
+- [ ] Agent 工具循环最多轮次与错误处理。
+- [ ] mock 三传输验证。
+- [ ] 中文注释。

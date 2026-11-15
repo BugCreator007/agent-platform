@@ -13,6 +13,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 节点类型元数据：中文名、说明、主题色与图标，供节点库、画布与检查器复用 */
 const NODE_TYPES: Record<string, { label: string; desc: string; color: string; bg: string; icon: string }> = {
   trigger: { label: '触发器', desc: '工单、定时或事件触发', color: '#2A78D6', bg: '#EAF0FB', icon: 'zap' },
   model: { label: '模型调用', desc: '调用大模型生成或判断', color: '#0E4F3C', bg: '#E9F1EC', icon: 'spark' },
@@ -27,14 +28,17 @@ const NODE_TYPES: Record<string, { label: string; desc: string; color: string; b
   end: { label: '结束', desc: '输出结果并结束流程', color: '#7E8781', bg: '#EFF1E9', icon: 'check-circle' },
 }
 
+/** 后端大写节点类型到前端节点 key 的别名映射 */
 const TYPE_ALIASES: Record<string, string> = {
   START: 'trigger', TRIGGER: 'trigger', MODEL: 'model', TOOL: 'tool', CONDITION: 'condition',
   APPROVAL: 'approval', KNOWLEDGE: 'knowledge', NOTIFY: 'notify', TIMER: 'timer',
   SUBFLOW: 'subflow', JOIN: 'join', END: 'end',
 }
 
+/** 将后端节点类型统一归一化为前端小写类型 */
 const normalizeType = (type: string) => TYPE_ALIASES[type.toUpperCase()] ?? type.toLowerCase()
 
+/** 新建流程时可选的预设模板 */
 const TEMPLATES: Record<string, { name: string; desc: string; trigger: string; nodes: WorkflowNode[] }> = {
   ticket: {
     name: '售后工单自动处理',
@@ -75,6 +79,7 @@ const TEMPLATES: Record<string, { name: string; desc: string; trigger: string; n
   },
 }
 
+/** 流程编排页：流程列表、模板创建、运行实例抽屉；编辑时切换到全屏编排器 */
 export function WorkflowPage() {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState('all')
@@ -87,17 +92,20 @@ export function WorkflowPage() {
 
   const workflows = useQuery({ queryKey: ['workflows'], queryFn: () => api.get<Workflow[]>('/workflows') })
   const instances = useQuery({ queryKey: ['workflow-instances'], queryFn: () => api.get<WorkflowInstance[]>('/workflow-instances') })
+  // 实例详情仅在选中后请求，并每 2 秒轮询以跟踪节点执行进度
   const instanceDetail = useQuery({
     queryKey: ['workflow-instance', instanceId],
     queryFn: () => api.get<{ instance: WorkflowInstance; nodeRuns: WorkflowNodeRun[] }>(`/workflow-instances/${instanceId}`),
     enabled: !!instanceId,
     refetchInterval: 2000,
   })
+  /** 启动流程实例，并在成功后刷新实例列表 */
   const startInstance = useMutation({
     mutationFn: (workflowId: string) => api.post<WorkflowInstance>('/workflow-instances', { workflowId, input: '' }),
     onSuccess: (i) => { toast('流程实例已启动'); setInstanceId(i.id); queryClient.invalidateQueries({ queryKey: ['workflow-instances'] }) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 实例操作：审批通过或取消；成功后同时失效列表与当前详情缓存 */
   const instanceAction = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'approve' | 'cancel' }) =>
       api.post<WorkflowInstance>(`/workflow-instances/${id}/${action}`, action === 'approve' ? { comment: '审批通过' } : undefined),
@@ -105,6 +113,7 @@ export function WorkflowPage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  /** 流程测试 / 发布等操作 */
   const act = useMutation({
     mutationFn: ({ id, act }: { id: string; act: string }) => api.post<Workflow>(`/workflows/${id}/${act}`),
     onSuccess: (_, vars) => {
@@ -114,6 +123,7 @@ export function WorkflowPage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  /** 按模板创建流程，成功后直接进入编排器 */
   const create = useMutation({
     mutationFn: () => api.post<Workflow>('/workflows', { name: newName, trigger: TEMPLATES[template].trigger, nodes: TEMPLATES[template].nodes }),
     onSuccess: (w) => {
@@ -274,6 +284,10 @@ export function WorkflowPage() {
   )
 }
 
+/**
+ * 全屏流程编排器。
+ * 负责节点画布拖拽/缩放、连线推导、节点配置检查器、测试运行轮询与发布。
+ */
 function WorkflowEditor({
   workflow,
   workflows,
@@ -298,12 +312,19 @@ function WorkflowEditor({
   const [log, setLog] = useState<string[]>([])
   const dragRef = useRef<{ key: string; startX: number; startY: number; x: number; y: number } | null>(null)
 
+  // 初始化画布布局：按网格自动排布节点坐标，并归一化节点类型
   useEffect(() => {
     setNodes(workflow.nodes.map((n, i) => ({ ...n, type: normalizeType(n.type), x: 80 + (i % 4) * 210, y: 70 + Math.floor(i / 4) * 150 })))
     setSelectedKey(workflow.nodes[0]?.key ?? null)
   }, [workflow.id])
 
   const selected = nodes.find((n) => n.key === selectedKey) ?? null
+  /**
+   * 推导画布连线：
+   * - 条件节点按 trueNext / falseNext 生成带标签的分支边
+   * - 普通节点读取 config.next（支持数组表示并行）
+   * - 未配置 next 时按节点顺序连接，end 节点除外
+   */
   const edgeList = useMemo(() => {
     const result: Array<{ key: string; from: string; to: string; label?: string }> = []
     const byKey = new Map(nodes.map((n) => [n.key, n]))
@@ -328,6 +349,10 @@ function WorkflowEditor({
     return result
   }, [nodes])
 
+  /**
+   * 节点拖拽：mousedown 时记录起点，mousemove 时按位移更新坐标（左上角最小 20px），
+   * mouseup 时移除全局监听，避免拖拽状态泄漏。
+   */
   const onMouseDown = (e: React.MouseEvent, node: WorkflowNode & { x: number; y: number }) => {
     e.stopPropagation()
     setSelectedKey(node.key)
@@ -346,6 +371,7 @@ function WorkflowEditor({
     window.addEventListener('mouseup', onUp)
   }
 
+  /** 向画布添加节点，key 使用时间戳保证唯一 */
   const addNode = (type: string) => {
     const key = `n${Date.now().toString(36)}`
     const t = NODE_TYPES[type]
@@ -356,22 +382,26 @@ function WorkflowEditor({
     toast('节点已添加到画布')
   }
 
+  /** 删除当前选中节点并清空选中态 */
   const removeNode = () => {
     if (!selected) return
     setNodes((prev) => prev.filter((n) => n.key !== selected.key))
     setSelectedKey(null)
   }
 
+  /** 更新选中节点的字段 */
   const updateSelected = (patch: Partial<WorkflowNode>) => {
     if (!selected) return
     setNodes((prev) => prev.map((n) => n.key === selected.key ? { ...n, ...patch } : n))
   }
 
+  /** 合并更新选中节点的 config，保留已有配置项 */
   const updateConfig = (patch: Record<string, unknown>) => {
     if (!selected) return
     updateSelected({ config: { ...(selected.config ?? {}), ...patch } })
   }
 
+  /** 保存草稿：剥离仅用于画布渲染的 x/y 坐标后提交，失败时提示本地草稿 */
   const save = () => {
     const next = { ...workflow, nodes: nodes.map(({ x, y, ...n }) => n) }
     onChanged(next)
@@ -380,6 +410,11 @@ function WorkflowEditor({
       .catch(() => toast('已保存到本地草稿'))
   }
 
+  /**
+   * 启动真实测试实例并轮询执行状态。
+   * 每 800ms 拉取一次实例详情，直到成功/失败/取消或进入等待态；
+   * 最多轮询 100 次（约 80 秒），超时后停止并提示到实例列表查看。
+   */
   const testRun = async (inputJson: string) => {
     setRunning(true)
     setTestOpen(false)
@@ -424,6 +459,7 @@ function WorkflowEditor({
     }
   }
 
+  /** 发布流程，成功后同步版本号并退出弹窗 */
   const publish = async () => {
     try {
       const updated = await api.post<Workflow>(`/workflows/${workflow.id}/publish`)

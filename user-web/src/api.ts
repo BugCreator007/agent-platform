@@ -1,7 +1,11 @@
+/** API 根路径，开发环境由 Vite 代理到后端 */
 const BASE = '/api/v1'
+/** localStorage 中 access token 的键 */
 const TOKEN_KEY = 'agent_user_token'
+/** localStorage 中用户资料的键 */
 const USER_KEY = 'agent_user_profile'
 
+/** 当前登录用户信息 */
 export interface UserInfo {
   id: string
   username: string
@@ -9,6 +13,7 @@ export interface UserInfo {
   roles: string[]
 }
 
+/** 用户端可见的智能体摘要 */
 export interface UserAgent {
   id: string
   name: string
@@ -21,6 +26,7 @@ export interface UserAgent {
   knowledgeBases: number
 }
 
+/** 后端持久化的会话消息 */
 export interface BackendMessage {
   id: string
   sessionId: string
@@ -32,6 +38,7 @@ export interface BackendMessage {
   createdAt: string
 }
 
+/** 后端统一响应包 */
 interface Envelope<T> {
   success: boolean
   code: string
@@ -39,6 +46,10 @@ interface Envelope<T> {
   data: T
 }
 
+/**
+ * 用户端登录态：token 与用户资料均保存在 localStorage。
+ * 刷新页面后可恢复登录；退出或鉴权失败时一并清除。
+ */
 export const session = {
   token: () => localStorage.getItem(TOKEN_KEY),
   setToken: (token: string) => localStorage.setItem(TOKEN_KEY, token),
@@ -58,6 +69,11 @@ export const session = {
   },
 }
 
+/**
+ * 通用 JSON 请求封装：
+ * 自动附加 Bearer token；401 时清除本地登录态；
+ * 解析统一响应包，失败抛出带后端 message 的错误。
+ */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = session.token()
   const response = await fetch(BASE + path, {
@@ -76,6 +92,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data
 }
 
+/** 用户端接口集合：登录、智能体目录、会话历史 */
 export const api = {
   login: (username: string, password: string) =>
     request<{ accessToken: string; user: UserInfo }>('/auth/login', {
@@ -86,6 +103,7 @@ export const api = {
   messages: (sessionId: string) => request<BackendMessage[]>(`/sessions/${sessionId}/messages`),
 }
 
+/** SSE 工具事件：调用开始或返回时携带的信息 */
 interface ToolEvent {
   name: string
   arguments?: unknown
@@ -93,6 +111,7 @@ interface ToolEvent {
   text?: string
 }
 
+/** SSE 流式对话的回调集合，各事件均为可选 */
 export interface StreamHandlers {
   onMeta?: (meta: Record<string, unknown>) => void
   onDelta?: (text: string) => void
@@ -102,12 +121,17 @@ export interface StreamHandlers {
   onError?: (message: string) => void
 }
 
+/** 流式对话请求体 */
 export interface ChatBody {
   agentId: string
   message: string
   sessionId?: string
 }
 
+/**
+ * 解析单个 SSE 事件块。
+ * 支持 event: 与多行 data: 字段；无数据且无事件名时返回 null。
+ */
 function parseBlock(raw: string): { event: string; data: string } | null {
   const lines = raw.replace(/\r/g, '').split('\n')
   let event = 'message'
@@ -120,6 +144,10 @@ function parseBlock(raw: string): { event: string; data: string } | null {
   return { event, data: data.join('\n') }
 }
 
+/**
+ * 将解析后的事件分发给对应回调。
+ * meta/delta/tool/tool-result/done/error 六类事件，JSON 解析失败时回退为空对象。
+ */
 function dispatch(block: { event: string; data: string }, handlers: StreamHandlers) {
   const json = (): Record<string, unknown> => {
     try {
@@ -154,7 +182,16 @@ function dispatch(block: { event: string; data: string }, handlers: StreamHandle
   }
 }
 
+/**
+ * 发起 SSE 流式对话并逐块解析。
+ * 以空行（\n\n）切分事件块，处理跨 chunk 的半块数据；
+ * 请求失败时尝试从错误响应体提取后端 message，最后冲刷 buffer 中的尾部事件。
+ * @param body 对话参数（agentId、message、可选 sessionId）
+ * @param handlers 各 SSE 事件回调
+ * @param signal 用于取消请求的 AbortSignal
+ */
 export async function streamChat(body: ChatBody, handlers: StreamHandlers, signal?: AbortSignal) {
+  // 手动附加鉴权头，Accept 声明期望 SSE 响应
   const response = await fetch(BASE + '/user/chat:stream', {
     method: 'POST',
     headers: {
@@ -177,6 +214,7 @@ export async function streamChat(body: ChatBody, handlers: StreamHandlers, signa
     throw new Error(message)
   }
 
+  // 流式读取：每次拼接解码结果，循环取出完整的 \n\n 分隔事件块
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''

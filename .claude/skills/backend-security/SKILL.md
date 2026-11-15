@@ -1,70 +1,133 @@
 ---
 name: backend-security
-description: 修改 Agent Platform 后端认证、JWT/OIDC、RBAC、审计、密钥或权限边界时使用；覆盖接口授权、角色、Redis 限流和注销黑名单。
+description: 修改 Agent Platform 认证、JWT/OIDC、RBAC、审计、Redis 限流/黑名单、Provider/MCP 密钥加密或 CORS 时使用。
 ---
 
-# 后端安全开发
+# 安全开发
 
 ## 先读
 
-- `backend/src/main/java/com/agentplatform/framework/config/SecurityConfig.java`
+- `framework/config/SecurityConfig.java`
+- `framework/security/{SecretCipher,TokenBlacklistService,LoginRateLimiter,JwtBlacklistValidator}.java`
 - `modules/system/application/auth/AuthService.java`
 - `modules/system/infrastructure/security/AuditLogFilter.java`
-- `framework/security/{TokenBlacklistService,LoginRateLimiter,JwtBlacklistValidator}.java`
-- `admin-web/src/App.tsx`、`admin-web/src/api.ts`
+- `common/error/ErrorCode.java`
+- `modules/model/infrastructure/persistence/entity/ProviderEntity.java`
+- `modules/tool/infrastructure/persistence/entity/McpServerEntity.java`
 
-## 认证
+## 认证模型
 
-- 本地 JWT：`POST /api/v1/auth/login`。
-- OIDC：配置 `OIDC_ISSUER_URI`，Resource Server 同时接受 OIDC 与本地 JWT。
-- Token 必须包含 `sub`、`roles`、`jti`、`exp`。
-- 登出写 Redis 黑名单；不要在客户端“只删除 localStorage”就算注销。
+- 无状态 Spring Security Resource Server，不使用 Session。
+- 本地登录：`POST /api/v1/auth/login`，BCrypt 校验后签发 HS256 JWT。
+- OIDC：配置 `OIDC_ISSUER_URI` 后，JwtDecoder 优先按 OIDC 校验，失败回退本地 JWT。
+- JWT 声明：
+  - `sub`：用户 ID/用户名
+  - `roles`：平台角色
+  - `jti`：Token 唯一 ID，用于注销黑名单
+- 登出：`POST /api/v1/auth/logout` 把 `jti` 写入 Redis 黑名单；`JwtBlacklistValidator` 拦截已注销 Token。
+- 登录限流：Redis 记录失败次数，默认 5 次 / 15 分钟。
+- 密码只存 BCrypt 哈希，禁止明文/可逆加密。
 
-## 授权
+## 角色
 
-角色：
+| 角色 | 典型权限 |
+|---|---|
+| `PLATFORM_ADMIN` | 成员、API Key、删除、模型厂商、全局配置 |
+| `DEVELOPER` | 智能体、知识库、工具、工作流、模型配置 |
+| `EVALUATOR` | 评测集、评测运行、发布门禁相关 |
+| `VIEWER` | 只读 |
+
+- 写接口必须加 `@PreAuthorize`。
+- 后端是最终权限边界；前端隐藏按钮只是体验。
+- 用户门户 `/api/v1/user/*` 只要求登录，并通过 `USABLE = {running, grayscale}` 白名单限制智能体。
+
+## 白名单
+
+`SecurityConfig` 放行：
 
 ```text
-PLATFORM_ADMIN
-DEVELOPER
-EVALUATOR
-VIEWER
+/actuator/health/**
+/actuator/info
+/v3/api-docs/**
+/swagger-ui/**
+/swagger-ui.html
+/api/v1/auth/login
+/api/v1/auth/config
+/api/v1/system/info
+OPTIONS /**
 ```
 
-规则：
-
-- 查询默认 `authenticated()`。
-- 写操作至少 `PLATFORM_ADMIN` 或 `DEVELOPER`。
-- 成员、密钥、审计、删除等敏感操作只给 `PLATFORM_ADMIN`。
-- 不要把权限判断写在 Controller 的 `if` 里；用 `@PreAuthorize`。
+新增公开接口前必须确认无敏感数据；其余默认要求认证。
 
 ## 审计
 
-- `AuditLogFilter` 自动记录所有非 GET `/api/v1/**` 写操作。
-- 登录成功/失败、退出在 `AuthService`/`AuthController` 显式记录。
-- 不要记录密码、完整 API Key、MCP Token 或 Cookie。
-- 审计写入失败不能阻断业务请求。
+`AuditLogFilter` 记录写操作：
 
-## 密钥
+- 方法、路径、状态码、操作人、IP、时间。
+- 不记录密码、Token、Cookie、请求体中的密钥、完整提示词。
+- 登录/登出单独记录。
+- 审计写入失败不应影响主请求（以现有实现为准）。
 
-- DeepSeek/Embedding/MCP/COS 密钥通过环境变量或 KMS/SSM 注入。
-- 不要把密钥写进 `application.yml`、前端、日志或 Git。
-- 本地 `.env` 必须 `chmod 600` 且被 `.gitignore` 忽略。
+新增敏感写操作时确认会被过滤器覆盖；必要时在应用服务补充业务审计。
+
+## 密钥与敏感数据
+
+### Provider API Key
+
+- 落库前经 `SecretCipher`（AES-GCM）加密到 `api_key_encrypted`。
+- 对外只返回掩码 `key` 和 `keyConfigured`，`apiKey()` 必须 `@JsonIgnore`。
+- 更新密钥接口只接收新 Key，不回显明文。
+- 日志/异常中不能出现 Key。
+- `SECRETS_KEY` 变更会导致历史密钥无法解密，必须重新录入。
+
+### MCP Token
+
+- `McpServerEntity` 使用同一 `SecretCipher`。
+- API 视图不返回 Token；只能更新/覆盖。
+- 内部服务地址受 `MCP_ALLOW_PRIVATE_URLS` 控制。
+
+### 其他
+
+- `.env` 权限 600，已被 `.gitignore` 忽略。
+- 不提交 `DEEPSEEK_API_KEY`、`SECRETS_KEY`、JWT Secret、DB 密码。
+- 生产使用腾讯云密钥管理/环境变量，不把密钥写进镜像。
+
+## CORS
+
+- `app.cors.allowed-origins` 逗号分隔。
+- 允许携带凭证、Authorization。
+- 生产必须配置为实际域名，不要使用 `*` + credentials。
+
+## 常见安全缺口
+
+- API Key 管理目前只有创建/列表，尚无外部 API Key 认证过滤器。
+- 多租户/组织隔离未实现。
+- 工作流/知识库没有细粒度数据权限。
+- 生产 TKE 的 Secret/密钥轮换未完全落地。
 
 ## 新增受保护接口
 
 ```java
 @PreAuthorize("hasAnyRole('PLATFORM_ADMIN','DEVELOPER')")
 @PostMapping
-public ApiResponse<X> create(...) { ... }
+public ApiResponse<X> create(@Valid @RequestBody XRequest request) { ... }
 ```
 
-更新 SecurityConfig 白名单时必须确认接口不返回敏感数据；不要为了图方便打开 `/api/v1/**`。
+测试：
 
-## 验收
+- 无 Token → 401。
+- VIEWER/错误角色 → 403。
+- 正确角色 → 200。
+- 登出后旧 Token → 401。
+- 连续错误登录 → 限流。
 
-- 未登录 401。
-- 角色不足 403，且响应体使用 `FORBIDDEN`。
-- Token 注销后 401。
-- 登录失败 5 次后 15 分钟内 403。
-- 审计表有本次操作记录。
+## Checklist
+
+- [ ] 写接口有 @PreAuthorize。
+- [ ] 返回 DTO 不含明文密钥/密文。
+- [ ] 审计覆盖且不记录敏感字段。
+- [ ] Token 不写日志。
+- [ ] CORS 生产域名受限。
+- [ ] 新增公开接口经过评审。
+- [ ] 401/403/200 验证。
+- [ ] 中文注释说明安全约束。

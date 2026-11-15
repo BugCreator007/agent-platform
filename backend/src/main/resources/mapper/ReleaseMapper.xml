@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- Release 表映射：单表 CRUD 由 MyBatis-Plus BaseMapper 提供，自定义 SQL 与类型映射在下方维护 -->
 <mapper namespace="com.agentplatform.modules.release.infrastructure.persistence.mapper.ReleaseMapper">
 
 </mapper>

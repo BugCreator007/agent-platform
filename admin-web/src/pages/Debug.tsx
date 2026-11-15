@@ -4,8 +4,13 @@ import { api, auth, type Agent, type ChatSession, type ModelInfo, type Provider,
 import { Icon } from '../components/icons'
 import { Badge, Button, PageHead, Panel, StatusBadge, toast } from '../components/ui'
 
+/** 调试对话中的消息项（仅保留用户与助手两种角色） */
 type ChatItem = { role: 'user' | 'assistant'; content: string }
 
+/**
+ * 会话调试页：左侧历史会话、中间流式对话、右侧运行配置。
+ * 支持加载历史消息、新建会话，以及 SSE 流式调用 runtime 接口。
+ */
 export function DebugPage() {
   const queryClient = useQueryClient()
   const [agentId, setAgentId] = useState('')
@@ -23,12 +28,14 @@ export function DebugPage() {
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api.get<Provider[]>('/providers') })
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.get<ModelInfo[]>('/models') })
 
+  // 首次加载到智能体列表时，默认选中 DeepSeek 绑定的智能体（否则取第一个）
   useEffect(() => {
     if (!agentId && agents.data?.length) {
       const preferred = agents.data.find((a) => a.providerId === 'deepseek') ?? agents.data[0]
       setAgentId(preferred.id)
     }
   }, [agents.data, agentId])
+  // 组件卸载时中止正在进行的流式请求
   useEffect(() => () => abortRef.current?.abort(), [])
 
   const agent = agents.data?.find((a) => a.id === agentId)
@@ -36,6 +43,10 @@ export function DebugPage() {
   const boundModel = models.data?.find((m) => m.id === agent?.modelId)
   const agentSessions = useMemo(() => (sessions.data ?? []).filter((s) => !agentId || s.agentId === agentId), [sessions.data, agentId])
 
+  /**
+   * 加载历史会话的持久化消息。
+   * 只保留 user/assistant 角色；若后端暂无消息，则用会话话题作为首条用户消息。
+   */
   const loadSession = async (session: ChatSession) => {
     abortRef.current?.abort()
     setAgentId(session.agentId)
@@ -53,6 +64,7 @@ export function DebugPage() {
     }
   }
 
+  /** 开启全新调试会话，并中止未完成的流 */
   const newSession = () => {
     abortRef.current?.abort()
     setSessionId('')
@@ -62,6 +74,7 @@ export function DebugPage() {
     setToolNotes([])
   }
 
+  /** 发送消息并消费 SSE 流：meta / delta / tool / tool-result / done / error 六类事件 */
   const send = async () => {
     if (!input.trim() || !agent || streaming) return
     const question = input.trim()
@@ -70,6 +83,7 @@ export function DebugPage() {
     setStreaming(true)
     abortRef.current = new AbortController()
     try {
+      // SSE 请求无法使用统一请求封装，需手动附加鉴权 token
       const token = auth.token()
       const response = await fetch('/api/v1/runtime/sessions:stream', {
         method: 'POST',
@@ -78,6 +92,7 @@ export function DebugPage() {
         signal: abortRef.current.signal,
       })
       if (!response.ok || !response.body) throw new Error(`运行失败：${response.status}`)
+      // 按 \n\n 切分事件块，残留在 buffer 中的半块数据等待下次读取后拼接
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -106,6 +121,7 @@ export function DebugPage() {
           } else if (event === 'tool-result') {
             try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `工具返回 · ${t.name} · ${t.error ? '失败' : '成功'}`]) } catch { /* ignore */ }
           } else if (event === 'done') {
+            // 结束后同步会话 ID 与实际模型，并刷新会话列表缓存
             try { const d = JSON.parse(data); setSessionId(d.sessionId ?? sessionId); setRuntimeModel(d.model ?? runtimeModel) } catch { /* ignore */ }
             queryClient.invalidateQueries({ queryKey: ['sessions'] })
           } else if (event === 'error') {
@@ -120,6 +136,7 @@ export function DebugPage() {
     }
   }
 
+  /** 切换调试智能体，同时重置为新的调试会话 */
   const selectAgent = (id: string) => {
     setAgentId(id)
     newSession()

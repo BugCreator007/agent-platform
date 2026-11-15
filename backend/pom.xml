@@ -20,6 +20,7 @@
     <springdoc.version>2.8.5</springdoc.version>
   </properties>
   <dependencies>
+    <!-- Web、安全、校验、Actuator：HTTP 接口与运行指标 -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
@@ -54,6 +55,7 @@
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-registry-prometheus</artifactId>
     </dependency>
+    <!-- MyBatis-Plus：持久化层（Mapper/XML/Repository） -->
     <dependency>
       <groupId>com.baomidou</groupId>
       <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
@@ -71,6 +73,7 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-aop</artifactId>
     </dependency>
+    <!-- Flyway：数据库版本迁移 -->
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>
@@ -84,6 +87,7 @@
       <artifactId>mysql-connector-j</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- H2：仅测试使用，MODE=MySQL 模拟生产表结构 -->
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>

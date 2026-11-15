@@ -6,6 +6,7 @@ import { Icon } from './icons'
 /* 基础展示组件：与交互图最终稿保持同一套设计语言                      */
 /* ------------------------------------------------------------------ */
 
+/** 页面头部：标题、副标题与右侧操作区 */
 export function PageHead({
   title,
   sub,
@@ -26,6 +27,11 @@ export function PageHead({
   )
 }
 
+/**
+ * 通用卡片面板。
+ * @param title 标题；@param sub 副标题；@param tools 标题右侧工具区
+ * @param footer 底部区域；@param noBody 为 true 时子节点不包裹 panel-body
+ */
 export function Panel({
   title,
   sub,
@@ -62,6 +68,7 @@ export function Panel({
   )
 }
 
+/** 按钮组件，支持 default/primary/ghost/danger 四种风格与 sm 尺寸 */
 export function Button({
   children,
   kind = 'default',
@@ -83,6 +90,7 @@ export function Button({
   )
 }
 
+/** 状态到“色调 + 中文文案”的映射表，未命中时原样显示并回退为中性色 */
 const STATUS_MAP: Record<string, [string, string]> = {
   running: ['good', '运行中'],
   grayscale: ['warn', '灰度中'],
@@ -121,10 +129,12 @@ const STATUS_MAP: Record<string, [string, string]> = {
   FAIL: ['danger', '失败'],
 }
 
+/** 将后端状态码转换为中文文案 */
 export function statusLabel(status: string) {
   return STATUS_MAP[status]?.[1] ?? status
 }
 
+/** 状态徽标：根据状态码自动选择颜色与文案 */
 export function StatusBadge({ status }: { status: string }) {
   const [tone, text] = STATUS_MAP[status] ?? ['neutral', status]
   return (
@@ -135,6 +145,7 @@ export function StatusBadge({ status }: { status: string }) {
   )
 }
 
+/** 通用徽标，可指定色调与是否显示圆点 */
 export function Badge({
   tone = 'neutral',
   children,
@@ -152,6 +163,7 @@ export function Badge({
   )
 }
 
+/** 进度条：value 会被裁剪到 0–100 之间作为宽度百分比 */
 export function Meter({ value, tone }: { value: number; tone?: string }) {
   return (
     <span className="meter">
@@ -160,6 +172,7 @@ export function Meter({ value, tone }: { value: number; tone?: string }) {
   )
 }
 
+/** 文字头像，字号随尺寸按比例缩放 */
 export function Avatar({
   text,
   tone,
@@ -183,6 +196,10 @@ export function Avatar({
 /* 抽屉、弹窗、Toast                                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 右侧抽屉，通过 Portal 挂载到 body。
+ * 打开时监听 Esc 关闭，点击遮罩层关闭；width 最大不超过视口 94%。
+ */
 export function Drawer({
   open,
   onClose,
@@ -217,6 +234,11 @@ export function Drawer({
   )
 }
 
+/**
+ * 居中弹窗，通过 Portal 挂载到 body。
+ * Esc 仅在没有打开抽屉时关闭，避免与 Drawer 的关闭逻辑冲突；
+ * 点击遮罩空白区域同样关闭。
+ */
 export function Modal({
   open,
   onClose,
@@ -264,14 +286,21 @@ export function Modal({
   )
 }
 
+/** 单条 Toast 数据结构 */
 type ToastItem = { id: number; msg: string; type: 'ok' | 'err' }
 
+/** 自增 id，用于区分并发 Toast */
 let toastId = 0
 
+/**
+ * 全局 Toast 入口：通过自定义事件广播，任意模块可直接调用，无需拿到组件引用。
+ * @param msg 提示文案；@param type ok 成功（默认）/ err 失败
+ */
 export function toast(msg: string, type: 'ok' | 'err' = 'ok') {
   window.dispatchEvent(new CustomEvent('app-toast', { detail: { msg, type, id: ++toastId } }))
 }
 
+/** Toast 容器：监听 `app-toast` 事件追加条目，3.2 秒后自动移除 */
 export function ToastHost() {
   const [items, setItems] = useState<ToastItem[]>([])
   useEffect(() => {
@@ -301,6 +330,10 @@ export function ToastHost() {
 /* 轻量图表                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 迷你折线图。
+ * 将数值归一化到视口坐标并生成 SVG path，末点绘制高亮圆点。
+ */
 export function Sparkline({
   values,
   color = '#0E4F3C',
@@ -312,6 +345,7 @@ export function Sparkline({
   width?: number
   height?: number
 }) {
+  // 归一化：x 按序号均分宽度，y 按 min/max 映射到绘图区并保留上下留白
   const points = useMemo(() => {
     const min = Math.min(...values)
     const max = Math.max(...values)
@@ -331,6 +365,14 @@ export function Sparkline({
   )
 }
 
+/**
+ * 多序列折线图（纯 SVG 实现）。
+ * 支持鼠标横向移动定位数据点并显示 tooltip，Y 轴使用“漂亮刻度”取整，图例显示序列名。
+ * @param labels X 轴标签
+ * @param series 数据序列（名称、颜色变量或色值、数值数组）
+ * @param height 图表高度，默认 250
+ * @param format tooltip 中数值的格式化函数
+ */
 export function LineChart({
   labels,
   series,
@@ -352,11 +394,13 @@ export function LineChart({
   const step = plotW / Math.max(1, n - 1)
   const y = (v: number) => pad.t + plotH - (v / nice) * plotH
   const ticks = 4
+  // 颜色变量到具体色值的兜底映射，非变量色值直接透传
   const colorMap: Record<string, string> = {
     'var(--s1)': '#2a78d6',
     'var(--s2)': '#eb6834',
     'var(--s3)': '#1baf7a',
   }
+  // hover 保存当前悬停的数据点索引，用于十字线与 tooltip 定位
   const [hover, setHover] = useState<number | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   return (
@@ -365,6 +409,7 @@ export function LineChart({
         viewBox={`0 0 ${width} ${height}`}
         style={{ width: '100%', height: 'auto', display: 'block' }}
         onPointerMove={(e) => {
+          // 将屏幕坐标换算为 SVG 坐标，再按步长取最近的标签索引
           const rect = hostRef.current?.getBoundingClientRect()
           if (!rect) return
           const px = ((e.clientX - rect.left) / rect.width) * width
@@ -383,6 +428,7 @@ export function LineChart({
           return <text key={i} x={pad.l - 8} y={yy + 3.5} textAnchor="end">{fmtAxis(val)}</text>
         })}
         {labels.map((lb, i) => {
+          // 标签过多时隔一个显示，避免 X 轴拥挤
           if (n > 9 && i % 2 !== 0 && i !== n - 1) return null
           return (
             <text key={i} x={pad.l + i * step} y={height - 8} textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}>
@@ -429,6 +475,7 @@ export function LineChart({
   )
 }
 
+/** 计算 Y 轴最大值：向上取整到 1/2/5×10^n，使刻度更规整 */
 function niceMax(max: number) {
   const pow = Math.pow(10, Math.floor(Math.log10(Math.max(1, max))))
   const base = max / pow
@@ -436,12 +483,14 @@ function niceMax(max: number) {
   return nice * pow
 }
 
+/** Y 轴刻度格式化：≥1 万显示“万”，≥1000 显示 k */
 function fmtAxis(v: number) {
   if (v >= 10000) return `${(v / 10000).toFixed(v % 10000 === 0 ? 0 : 1)}万`
   if (v >= 1000) return `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k`
   return String(Math.round(v))
 }
 
+/** 标签页切换控件，受控组件，通过 onChange 通知选中项 */
 export function Tabs({
   items,
   active,
@@ -462,6 +511,7 @@ export function Tabs({
   )
 }
 
+/** 空状态占位：图标 + 标题 + 可选操作说明 */
 export function Empty({ icon = 'list', title, children }: { icon?: string; title: string; children?: React.ReactNode }) {
   return (
     <div className="empty">

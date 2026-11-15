@@ -14,6 +14,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 后端规则不可用时的内置兜底规则（仅用于展示） */
 const RULES = [
   { name: '智能体错误率', metric: 'error_rate', level: 'critical', threshold: '> 2% · 5 分钟', channel: '企微 + 短信', on: true },
   { name: '工具错误率', metric: 'tool_error_rate', level: 'warning', threshold: '> 5% · 10 分钟', channel: '企微', on: true },
@@ -22,6 +23,7 @@ const RULES = [
   { name: '模型额度', metric: 'quota_used', level: 'critical', threshold: '> 90%', channel: '企微 + 短信', on: true },
 ]
 
+/** 监控告警页：告警列表按状态分页签、规则开关、值班信息与认领/解决操作 */
 export function AlertsPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState('active')
@@ -30,12 +32,15 @@ export function AlertsPage() {
 
   const alerts = useQuery({ queryKey: ['alerts'], queryFn: () => api.get<Alert[]>('/alerts') })
   const ruleQuery = useQuery({ queryKey: ['alert-rules'], queryFn: () => api.get<AlertRule[]>('/alert-rules') })
+  /** 切换告警规则启用状态 */
   const toggleRule = useMutation({
     mutationFn: (rule: AlertRule) => api.put<AlertRule>(`/alert-rules/${rule.id}`, { ...rule, enabled: !rule.enabled }),
     onSuccess: () => { toast('告警规则已更新'); queryClient.invalidateQueries({ queryKey: ['alert-rules'] }) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  // 后端规则未返回时使用本地兜底规则，保证页面可展示
   const rules = ruleQuery.data ?? RULES.map((r, i) => ({ id: `rule-${i}`, name: r.name, metric: r.metric, level: r.level, thresholdValue: 0, windowLabel: r.threshold, channel: r.channel, enabled: r.on }))
+  /** 认领或解决告警 */
   const act = useMutation({
     mutationFn: ({ id, action }: { id: string; action: string }) => api.post<Alert>(`/alerts/${id}/${action}`),
     onSuccess: (a) => {
@@ -46,6 +51,7 @@ export function AlertsPage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  // 按状态拆分列表并支持页签筛选
   const list = alerts.data ?? []
   const active = list.filter((a) => a.status === 'active')
   const ack = list.filter((a) => a.status === 'ack')

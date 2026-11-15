@@ -1,107 +1,154 @@
 ---
 name: backend-ddd-module
-description: 在 Agent Platform 后端新增或重构一个 DDD 限界上下文时使用；负责模块目录、package-info、四层依赖、Modulith 边界和 MyBatis-Plus 适配器落地。
+description: 新增或重构 Agent Platform 的 Spring Modulith 限界上下文、四层目录、NamedInterface、MyBatis 仓储适配器和模块边界时使用。
 ---
 
-# 后端 DDD 模块开发
+# DDD / Spring Modulith 模块开发
 
-## 先读
+## 何时使用
 
-- `backend/src/main/java/com/agentplatform/modules/agent/`：最小完整模块样板。
-- `backend/src/main/java/com/agentplatform/modules/knowledge/`：包含解析、检索、存储等复杂基础设施的样板。
-- `backend/src/test/java/com/agentplatform/ModularityTests.java`：模块边界校验入口。
-- `backend/src/main/resources/db/migration/`：Flyway 迁移。
+- 新增业务模块（例如开放平台、计费、租户）。
+- 现有模块职责混乱，需要拆分 application/query、domain 或 infrastructure。
+- 新增跨模块查询，需要决定暴露哪个 NamedInterface。
+- Modulith 测试报告模块依赖越界或循环依赖。
 
-## 分层约定
+## 当前模块
+
+```text
+modules/
+  agent     智能体定义、模型绑定、生命周期
+  chat      会话运行时、SSE、会话分析读模型
+  model     厂商、模型目录、路由、密钥
+  tool      工具目录、HTTP/内置工具、MCP
+  knowledge 数据集、文档、摄取、检索
+  workflow  流程定义、执行、审批、定时器、补偿
+  release   发布单、灰度、回滚
+  eval      评测集、评测运行、发布门禁
+  observe   概览、告警、成本
+  system    认证、成员、API Key、审计
+  portal    用户门户 API（只读复用 agent/chat）
+  open      开放平台占位，尚无实现
+```
+
+共享内核在 `common`，技术框架在 `framework`，管理端辅助入口在 `admin`。
+
+## 模块目录模板
 
 ```text
 modules/<module>/
-├── package-info.java                 # @ApplicationModule
-├── interfaces/
-│   ├── dto/                          # 请求/响应 DTO
-│   └── rest/<X>Controller.java
-├── application/
-│   ├── service/<X>ApplicationService.java
-│   └── query/<X>Summary.java
-├── domain/
-│   ├── model/<Aggregate>.java
-│   └── repository/<X>Repository.java
-└── infrastructure/
-    ├── persistence/
-    │   ├── entity/<X>Entity.java
-    │   ├── mapper/<X>Mapper.java
-    │   ├── repository/<X>Repository.java
-    │   └── <X>SeedData.java
-    ├── ai/ web/ storage/ ...
-(自定义 SQL 放 backend/src/main/resources/mapper/<X>Mapper.xml)
+  package-info.java                 @ApplicationModule(displayName = "...")
+  application/
+    package-info.java
+    query/
+      package-info.java             @NamedInterface("api")
+      XxxView.java                 只读查询 DTO
+    service/
+      package-info.java             @NamedInterface("api")
+      XxxApplicationService.java
+  domain/
+    model/                         聚合、值对象、状态枚举
+    repository/                    领域仓储端口
+  infrastructure/
+    persistence/
+      entity/XxxEntity.java
+      mapper/XxxMapper.java
+      repository/XxxRepository.java       实体仓储
+      repository/MybatisXxxRepository.java 领域端口适配器
+  interfaces/
+    dto/                           请求 DTO
+    rest/XxxController.java
 ```
 
-依赖方向：
+## 暴露规则
+
+- 跨模块只能依赖对方的：
+  - `application/query`（读模型、查询服务）
+  - `application/service`（用例服务）
+- 这两个包必须有 `@NamedInterface("api")`。
+- `domain`、`infrastructure`、`interfaces` 不跨模块暴露。
+- Controller 只能依赖本模块 application 或其他模块 NamedInterface。
+- 不要为了省事让 A 模块直接 import B 模块 Entity/Mapper。
+
+示例：
+
+```java
+/**
+ * 模型模块对外查询契约。
+ */
+@org.springframework.modulith.NamedInterface("api")
+package com.agentplatform.modules.model.application.query;
+```
+
+## 依赖方向
 
 ```text
 interfaces → application → domain
-infrastructure → domain（实现端口）
+                 ↓
+          infrastructure → domain
 ```
 
-禁止：
+- domain 不依赖 Spring、MyBatis、HTTP、Redis、Jackson。
+- infrastructure 实现 domain 端口，可以被 application 通过接口注入。
+- application 不直接使用 Mapper/Entity。
+- interfaces 不写业务规则和 SQL。
 
-- `domain` 依赖 Spring、MyBatis-Plus、WebClient、Redis。
-- `interfaces` 依赖 `infrastructure`。
-- 跨模块直接 import 其他模块的 `domain` 或 `infrastructure`。
-- 把业务逻辑写进 Controller 或 MyBatis-Plus Entity。
+## Repository 分层
 
-## 新增模块步骤
+每个聚合通常有三层：
 
-1. 建模块根包和 `package-info.java`：
+1. `domain/repository/XRepository.java`：领域端口。
+2. `infrastructure/persistence/repository/XRepository.java`：包装 Mapper，返回 Entity。
+3. `infrastructure/persistence/repository/MybatisXRepository.java`：实现领域端口，完成 Entity ↔ Domain 转换；多表时聚合多个实体仓储。
 
-```java
-@org.springframework.modulith.ApplicationModule(displayName = "模块中文名")
-package com.agentplatform.modules.<module>;
-```
-
-2. 先定义 domain 聚合与 repository 端口，不引入框架注解。
-3. 在 infrastructure 建 Entity、Mapper、Repository；自定义 SQL 放 XML：
+示例职责：
 
 ```java
-@TableName(value = "x", autoResultMap = true)
-public class XEntity { ... }              // persistence/entity
-
-public interface XMapper extends BaseMapper<XEntity> { }  // persistence/mapper
-
+// 实体仓储：只做 MyBatis 读写
 @Repository
-public class XRepository {                 // persistence/repository
-    private final XMapper mapper;
+public class AgentRepository {
+    private final AgentMapper mapper;
+    public List<AgentEntity> findAll() { return mapper.selectList(null); }
+    public void save(AgentEntity entity) { ... }
+}
+```
+
+```java
+// 领域适配器：转换领域对象
+@Primary
+@Repository
+public class MybatisAgentRepository implements com...agent.domain.repository.AgentRepository {
+    private final AgentRepository rows;
     ...
 }
 ```
 
-多表端口（如知识库）由端口适配器聚合多个单表 Repository。
+## 跨模块示例
 
-4. 增加 Flyway 迁移，见 `backend-persistence` skill。
-5. 增加 application service、DTO、Controller。
-6. 只有跨模块需要复用时才加 `@NamedInterface`：
+- `chat` 读取模型路由：依赖 `model.application.query.ModelCatalog/ModelRoute`。
+- `chat` 读取知识库：依赖 `knowledge.application.service.KnowledgeApplicationService`。
+- `observe` 读取会话事实：依赖 `chat.application.query.SessionAnalyticsService`。
+- `portal` 读取智能体与运行时：依赖 `agent.application.service.AgentApplicationService`、`chat.application.runtime.AgentRuntimeService`。
+- `release` 调用评测门禁：依赖 `eval.application.service.EvalGateService`。
 
-```java
-@org.springframework.modulith.NamedInterface("api")
-package com.agentplatform.modules.<module>.application.service;
-```
+## 新模块 Checklist
 
-暴露面优先是 `application/query`、`application/service`，不要把 domain 实体暴露给其他模块。
+- [ ] 新建 `package-info.java` 与 `@ApplicationModule`。
+- [ ] 建立四层目录，不放错包。
+- [ ] 需要跨模块的包加 `@NamedInterface("api")`。
+- [ ] 定义领域聚合与仓储端口。
+- [ ] Entity/Mapper/实体仓储/领域适配器齐全。
+- [ ] 新表迁移与 TypeHandler 一致。
+- [ ] Controller、DTO、权限、错误码。
+- [ ] 种子数据可重复启动。
+- [ ] `ModularityTests` 通过。
+- [ ] 更新 `.claude/skills` 中的模块地图（如果新增职责）。
+- [ ] 所有类和关键方法有中文注释。
 
-7. 如果需要演示数据，只允许 `*SeedData` 提供初始值，不能恢复内存仓储作为运行时存储。
-8. 运行：
+## 常见错误
 
-```bash
-cd backend
-mvn test
-```
-
-Modulith 会验证模块依赖；出现 `non-exposed type` 时，优先调整依赖方向，不要随意把 infrastructure 全量暴露。
-
-## 命名
-
-- 模块名：小写单数或业务词，如 `knowledge`、`workflow`。
-- 聚合：`Agent`、`Dataset`、`WorkflowInstance`。
-- 查询模型：`AgentSummary`、`DatasetSummary`。
-- 应用服务：`AgentApplicationService`、`WorkflowExecutionService`。
-- 仓储端口：`AgentRepository`（domain）；单表仓储：`AgentRepository`（infrastructure，包装 `AgentMapper`）；自定义 SQL：`AgentMapper.xml`。
+- 把 Mapper 注入 application service，越过端口。
+- 从 `chat` 直接 import `model.infrastructure.entity.ProviderEntity`。
+- 把 `@NamedInterface` 加在 domain 包上。
+- 新建模块后忘记 `package-info.java`，Modulith 不识别边界。
+- Controller 直接拼 SQL 或调用多个 Mapper。
+- 领域对象引入 `@TableName` 等持久化注解。

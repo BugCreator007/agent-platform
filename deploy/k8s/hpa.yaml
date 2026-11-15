@@ -1,3 +1,4 @@
+# 后端弹性伸缩：按 CPU 自动扩缩副本
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

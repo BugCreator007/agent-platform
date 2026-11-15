@@ -128,6 +128,7 @@
   --on-pine:#F4FFF9;
   --shadow:rgba(0,0,0,.32);
 }
+/* ============ 基础重置与排版 ============ */
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{font-family:var(--font);background:var(--canvas);color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
@@ -178,6 +179,7 @@ svg{display:block}
 .rail-user:hover{background:var(--hover)}
 .rail-user .who{margin-left:auto;color:var(--ink);font-size:12.5px}
 .rail-user .who small{display:block;color:var(--muted);font-size:10.5px;font-weight:400}
+/* 头像与语义色调变体 */
 .avatar{width:30px;height:30px;border-radius:50%;background:#E4EDE7;color:#204635;display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
 .avatar.tone-default{background:#E4EDE7;color:#204635}
 .avatar.tone-blue{background:#E8F0FB;color:#1F4E9C}
@@ -189,6 +191,7 @@ svg{display:block}
 .avatar.sm{width:28px;height:28px;font-size:11.5px}
 .avatar.amber{background:var(--amber-wash);color:var(--warn-text)}
 
+/* ============ 顶栏与主区域 ============ */
 .stage{min-width:0;display:flex;flex-direction:column;min-height:100vh}
 .topbar{height:60px;padding:0 30px;display:flex;align-items:center;gap:18px;background:var(--topbar);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
 .crumb{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:8px;white-space:nowrap}
@@ -264,6 +267,7 @@ svg{display:block}
 .panel-body{padding:16px 18px}
 .panel-body.tight{padding:10px 18px 6px}
 .panel-foot{padding:10px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+/* 通用网格与间距工具类 */
 .grid-2{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px;align-items:start}
 .grid-2.even{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 .wf-grid{grid-template-columns:minmax(0,2.2fr) minmax(0,1fr)}
@@ -539,6 +543,7 @@ textarea.input{height:auto;padding:9px 11px;resize:vertical;line-height:1.6}
 .tour-flow small{display:block;color:var(--muted);font-size:11px;margin-top:1px;line-height:1.45}
 
 /* ============ specific views ============ */
+/* ============ 发布流水线 / 成员 / 密钥 / 预算 ============ */
 .suite-card{padding:16px 18px;display:flex;flex-direction:column;gap:9px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
 .suite-card:hover{border-color:var(--line-2);box-shadow:0 4px 16px rgba(20,25,22,.05)}
 .suite-card .sc-top{display:flex;align-items:flex-start;gap:8px}

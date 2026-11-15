@@ -15,8 +15,10 @@ import {
   toast,
 } from '../components/ui'
 
+/** 模型路由策略：主模型、故障转移顺序与策略类型 */
 interface RoutingPolicy { strategy: string; primary: string; fallback: string[]; region: string }
 
+/** 模型厂商页：厂商卡片、模型目录、路由/额度/密钥配置与增删改操作 */
 export function ModelsPage() {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState('all')
@@ -38,14 +40,17 @@ export function ModelsPage() {
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.get<ModelInfo[]>('/models') })
   const routingQuery = useQuery({ queryKey: ['model-routing'], queryFn: () => api.get<RoutingPolicy>('/models/routing') })
   const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<AuthUser>('/auth/me') })
+  // 仅平台管理员可执行删除操作，其余角色隐藏删除按钮
   const canDelete = me.data?.roles?.includes('PLATFORM_ADMIN') ?? false
 
+  /** 同时刷新厂商、模型与路由策略三份缓存 */
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['providers'] })
     queryClient.invalidateQueries({ queryKey: ['models'] })
     queryClient.invalidateQueries({ queryKey: ['model-routing'] })
   }
 
+  /** 启用 / 停用厂商 */
   const act = useMutation({
     mutationFn: ({ id, act }: { id: string; act: string }) => api.post<Provider>(`/providers/${id}/${act}`),
     onSuccess: (p) => {
@@ -55,6 +60,7 @@ export function ModelsPage() {
     },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 厂商连通性测试：成功后更新当前抽屉中的状态与延迟 */
   const testProvider = useMutation({
     mutationFn: (id: string) => api.post<ProviderTestResult>(`/providers/${id}/test`),
     onSuccess: (result, id) => {
@@ -65,6 +71,7 @@ export function ModelsPage() {
     },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 更新厂商 API Key（提交后服务端加密保存，不回显明文） */
   const updateKey = useMutation({
     mutationFn: ({ id, key }: { id: string; key: string }) => api.put<Provider>(`/providers/${id}/key`, { key }),
     onSuccess: (provider) => {
@@ -76,6 +83,7 @@ export function ModelsPage() {
     },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 添加模型：能力标签按中英文逗号拆分并去空白 */
   const createModel = useMutation({
     mutationFn: () => api.post<ModelInfo>('/models', {
       ...modelForm,
@@ -89,31 +97,37 @@ export function ModelsPage() {
     },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 设为默认模型 */
   const setDefault = useMutation({
     mutationFn: (id: string) => api.post<ModelInfo>(`/models/${id}/default`),
     onSuccess: () => { toast('默认模型已更新'); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 保存厂商月度额度 */
   const saveQuota = useMutation({
     mutationFn: () => api.put<Provider>(`/providers/${selected!.id}/quota`, { quota }),
     onSuccess: () => { toast('额度已更新'); setQuotaOpen(false); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 保存路由策略（默认模型、故障转移顺序等） */
   const saveRouting = useMutation({
     mutationFn: () => api.put<RoutingPolicy>('/models/routing', routing),
     onSuccess: () => { toast('路由策略已保存'); setRoutingOpen(false); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 接入新厂商 */
   const createProvider = useMutation({
     mutationFn: (values: Record<string, unknown>) => api.post<Provider>('/providers', values),
     onSuccess: () => { toast('厂商已接入'); setAddOpen(false); setNewProvider({ name: '', endpoint: 'https://api.example.com/v1', region: '华东 1', key: '', quota: 10000, protocol: 'openai' }); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 删除厂商（连同其下模型） */
   const deleteProvider = useMutation({
     mutationFn: (id: string) => api.del<void>(`/providers/${id}`),
     onSuccess: () => { toast('厂商及其模型已删除'); setSelected(null); refresh() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 删除单个模型 */
   const deleteModel = useMutation({
     mutationFn: (id: string) => api.del<void>(`/models/${id}`),
     onSuccess: () => { toast('模型已删除'); refresh() },
@@ -126,34 +140,41 @@ export function ModelsPage() {
   const healthy = list.filter((p) => p.status === 'healthy').length
   const degraded = list.filter((p) => p.status === 'degraded').length
   const paused = list.filter((p) => p.status === 'paused').length
+  // 默认模型优先取路由策略中的主模型，其次取 isDefault 标记，最后回退第一个
   const primary = allModels.find((m) => m.id === routingQuery.data?.primary) ?? allModels.find((m) => m.isDefault) ?? allModels[0]
   const primaryProvider = list.find((p) => p.id === primary?.providerId)
 
+  /** 打开厂商详情，默认停在概览页签 */
   const openProvider = (p: Provider) => {
     setSelected(p)
     setDrawerTab('overview')
   }
+  /** 打开额度调整弹窗 */
   const openQuota = (p: Provider) => {
     setSelected(p)
     setQuota(p.quota)
     setQuotaOpen(true)
   }
+  /** 打开路由策略弹窗；后端无策略时给出默认值 */
   const openRouting = () => {
     const r = routingQuery.data
     setRouting(r ?? { strategy: 'failover', primary: primary?.id ?? '', fallback: allModels.slice(1, 4).map((m) => m.id), region: '华东 1' })
     setRoutingAdd('')
     setRoutingOpen(true)
   }
+  /** 打开密钥更新弹窗，清空上次输入 */
   const openKey = (provider: Provider) => {
     setSelected(provider)
     setKeyValue('')
     setKeyOpen(true)
   }
+  /** 打开添加模型弹窗并重置表单 */
   const openModel = () => {
     setModelForm({ id: '', name: '', upstreamModel: '', context: '128K', inPrice: 0, outPrice: 0, capabilities: '文本', routeWeight: 10 })
     setModelOpen(true)
   }
 
+  // 当前选中厂商下的模型列表
   const providerModels = useMemo(() => selected ? allModels.filter((m) => m.providerId === selected.id) : [], [selected, allModels])
 
   return (

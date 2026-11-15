@@ -1,3 +1,4 @@
+# 测试环境：H2 MySQL 兼容模式 + Flyway 迁移，保证与生产表结构一致
 spring:
   datasource:
     url: jdbc:h2:mem:agent_platform;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1

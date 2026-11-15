@@ -128,6 +128,9 @@ mvn test
 
 cd ../admin-web
 npm run build
+
+cd ../user-web
+npm run build
 ```
 
 `mvn test` 包含 Spring Modulith 模块边界校验和 H2 上下文加载测试。
@@ -135,5 +138,6 @@ npm run build
 ## 目录说明
 
 - `docs/implementation-status.md`：实现状态与剩余边界。
+- `.claude/skills/README.md`：20 个项目级 Claude Code 开发 skills 索引。
 - `deploy/README.md`：腾讯云 TKE/中间件部署说明。
 - `deploy/docker-compose.yml`：本地 MySQL、Redis、Milvus、Elasticsearch 与前后端。

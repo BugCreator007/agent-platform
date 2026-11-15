@@ -1,101 +1,168 @@
 ---
 name: backend-persistence
-description: 为 Agent Platform 后端新增或修改 MySQL/MyBatis-Plus 持久化时使用；覆盖 Flyway 迁移、Entity、Mapper、XML、Repository、事务与种子数据。
+description: 修改 Agent Platform 的 MySQL/Flyway/MyBatis-Plus 持久化时使用；覆盖迁移版本、Entity、Mapper XML、TypeHandler、仓储分层、事务、种子数据和 H2 测试。
 ---
 
-# 后端持久化开发
+# 持久化开发（MyBatis-Plus）
 
-## 先读
+## 当前技术栈
 
-- `backend/src/main/resources/db/migration/`：现有 V1–V4。
-- `backend/src/main/resources/application.yml`：MySQL、MyBatis-Plus、Flyway。
-- 目标模块的 `domain/repository`、`infrastructure/persistence`。
+- MySQL 8 生产；H2 MySQL 模式测试。
+- Flyway 管理表结构；`spring.flyway.locations=classpath:db/migration`。
+- MyBatis-Plus 3.x；`mapper-locations=classpath*:mapper/*.xml`。
+- 不再使用 JPA/Hibernate；不要把 `@Entity`、`ddl-auto` 带回来。
 
-## 关键原则
+## 目录约定
 
-- 默认数据库是 MySQL 8；测试使用 H2 MySQL 模式。
-- 不再使用 Hibernate DDL 校验：表结构只由 Flyway 建，Entity 的 `@TableName`/`@TableField` 必须与迁移一致。
-- 运行时不得使用内存仓储；`*SeedData` 只用于首次启动初始化。
-- 已应用的迁移文件不要修改，新增 `V{n}__description.sql`。
+```text
+infrastructure/persistence/
+  entity/XxxEntity.java              @TableName 实体
+  mapper/XxxMapper.java              BaseMapper + 自定义方法
+  repository/XxxRepository.java      实体仓储，包装 Mapper
+  repository/MybatisXxxRepository.java 领域端口适配器
+backend/src/main/resources/mapper/
+  XxxMapper.xml                      自定义 SQL
+```
 
-## 新增表 / 字段
+- 单表 CRUD 用 `BaseMapper`；多条件/聚合/联表写 XML。
+- Entity 只做数据库映射；Domain 业务规则放 `domain/model`。
+- 领域端口在 `domain/repository`；应用层只依赖端口。
 
-1. 新增迁移：
+## Flyway 迁移
+
+当前迁移到 `V9`：
+
+```text
+V1__init.sql
+V2__alert_rules.sql
+V3__agent_model_binding_and_messages.sql
+V4__document_source.sql
+V5__mcp_servers.sql
+V6__mcp_server_enabled.sql
+V7__model_provider_routing.sql
+V8__workflow_runtime_state.sql
+V9__session_analytics_index.sql
+```
+
+规则：
+
+- 已应用的文件禁止修改；新增 `V10__description.sql`。
+- 同一版本号只能有一个文件；并行开发时先检查 `ls db/migration`。
+- MySQL/H2 都要兼容；避免 MySQL 专有 JSON 函数、`INSERT IGNORE`、复杂 `ON DUPLICATE KEY`。
+- 迁移必须幂等可重跑（本地清库后能从 V1 到最新）。
+- 时间字段统一 `TIMESTAMP` / `Instant`，生产连接使用 `connectionTimeZone=UTC` 或明确 `serverTimezone=Asia/Shanghai`。
+
+示例：
 
 ```sql
-ALTER TABLE agents ADD COLUMN provider_id VARCHAR(64);
-ALTER TABLE agents ADD COLUMN model_id VARCHAR(128);
-CREATE INDEX idx_agents_provider ON agents (provider_id);
+ALTER TABLE providers ADD COLUMN protocol VARCHAR(32) NOT NULL DEFAULT 'openai';
+ALTER TABLE providers ADD COLUMN api_key_encrypted TEXT;
+CREATE INDEX idx_sessions_created ON chat_sessions (created_at);
 ```
 
-2. 更新 MyBatis-Plus Entity（字段访问模式）：
+## Entity 模板
 
 ```java
-@TableField("provider_id")
-private String providerId;
-```
+/**
+ * 智能体持久化实体，对应 agents 表。
+ */
+@TableName(value = "agents", autoResultMap = true)
+public class AgentEntity {
+    @TableId(type = IdType.INPUT) private String id;
+    @TableField(value = "provider_id") private String providerId;
+    @TableField(typeHandler = StringListTypeHandler.class) private List<String> tools;
+    @TableField(value = "created_at") private Instant createdAt;
 
-3. 更新 `toDomain()` / `from(domain)` 映射。
-4. 如果字段可能为空，注意 `Map.of` 不接受 null；API 返回前做空值转换。
-5. 更新领域模型构造器时保留旧构造器重载，避免影响种子数据和历史调用。
-
-## 新增仓储
-
-领域端口只声明业务方法：
-
-```java
-public interface XRepository {
-    Optional<X> findById(String id);
-    List<X> findAll();
-    void save(X value);
-    void deleteById(String id);
+    public static AgentEntity from(Agent agent) { ... }
+    public Agent toDomain() { ... }
 }
 ```
 
-基础设施分层：
+关键点：
+
+- `@TableId(type = IdType.INPUT)`：ID 由应用生成。
+- `@TableName(autoResultMap = true)`：TypeHandler 查询回读必需。
+- 字段名与迁移一致；snake_case 与 camelCase 映射由配置处理，但显式 `@TableField` 更安全。
+- `FieldStrategy.ALWAYS` / `NOT_NULL` 根据更新语义设置；全局默认 `always`。
+- Entity 不要写业务方法。
+
+## TypeHandler
+
+- `StringListTypeHandler`：角色、工具、知识库、能力标签等字符串列表。
+- `TraceStepListTypeHandler`：会话 trace 复杂对象。
+- `WorkflowNodeListTypeHandler`：流程节点 JSON。
+- 新复杂字段：新增模块内 TypeHandler，放在 `infrastructure/persistence`。
+- 列表字段 Entity 必须 `autoResultMap = true`，否则查询读不回。
+
+## Mapper 与 XML
+
+Mapper：
 
 ```java
-// persistence/repository/XRepository.java：包装 Mapper
-@Repository
-public class XRepository {
-    private final XMapper mapper;
-    public List<XEntity> findAll() { return mapper.selectList(null); }
-    ...
-}
-
-// 多表端口适配器聚合多个 Repository
-@Primary
-@Repository
-public class MybatisXRepository implements XRepository {
-    private final ARowRepository rows;
-    ...
+public interface AgentMapper extends BaseMapper<AgentEntity> {
+    List<AgentEntity> findByStatus(@Param("status") String status);
 }
 ```
 
-- 命名：`XEntity`、`XMapper`、`XMapper.xml`、`XRepository`，按实体名统一。
-- Mapper 放 `persistence/mapper`，XML 放 `resources/mapper`，Repository 放 `persistence/repository`。
-- 自定义 SQL 写在 XML；单表 CRUD 用 BaseMapper。
-- 写操作涉及多表时在适配器或应用服务加 `@Transactional`。
+XML 放 `resources/mapper/AgentMapper.xml`：
 
-## 列表字段
+```xml
+<select id="findByStatus" resultType="...AgentEntity">
+  SELECT * FROM agents WHERE status = #{status}
+</select>
+```
 
-短字符串列表使用 `StringListTypeHandler`；复杂对象（TraceStep、WorkflowNode）使用模块内 JSON TypeHandler。实体必须加 `@TableName(autoResultMap = true)`，否则查询时 TypeHandler 不生效。
+- 自定义 SQL 用 `#{}`，禁止字符串拼接用户输入。
+- 聚合查询返回 Entity 或专用 Row 类型；不要返回 Map 给应用层。
+- XML 中列名与 ResultMap/TypeHandler 对齐。
+
+## 仓储分层
+
+1. 实体仓储：`AgentRepository` 注入 `AgentMapper`，返回 Entity。
+2. 领域适配器：`MybatisAgentRepository implements domain.AgentRepository`，注入一个或多个实体仓储，做转换。
+3. 多表聚合：如 `MybatisWorkflowInstanceRepository` 聚合实例仓储 + 节点运行仓储。
+4. 应用服务事务：涉及多个仓储的写操作用 `@Transactional`。
+
+## 事务
+
+- 事务边界在 application service，不在 Controller。
+- 多表写、删除级联、种子初始化要考虑事务。
+- 只读查询不需要事务。
+- 失败补偿/外部调用不要放在长事务里。
 
 ## 种子数据
 
-- 每个模块一个 `*DataSeeder implements ApplicationRunner`。
-- 只在目标表为空时插入。
-- 有关联顺序时使用 `@Order`（例如知识库先数据集、后分块）。
-- 不要覆盖用户数据。
+- `*DataSeeder implements ApplicationRunner`，`@ConditionalOnProperty(app.demo.seed)`。
+- 首次启动空表时插入；新增内置数据可用“缺失才插入”的增量策略。
+- 不覆盖用户修改；删除用户数据前必须确认。
+- 关联数据顺序用 `@Order`。
 
-## 验证
+## 测试与手动检查
 
 ```bash
 cd backend && mvn test
 ```
 
-并直接检查 MySQL：
+测试使用 H2 + Flyway，必须覆盖：
+
+- 上下文启动。
+- 列表/JSON TypeHandler 写后读。
+- 新表/字段迁移。
+- 关键查询。
+
+手动检查：
 
 ```bash
-docker exec agent-mysql mysql -uagent -pagent123 agent_platform -e "SHOW TABLES; SELECT COUNT(*) FROM <table>;"
+docker exec -e MYSQL_PWD=agent123 agent-mysql-local \
+  mysql -uagent agent_platform -e "SHOW TABLES; SELECT COUNT(*) FROM agents;"
 ```
+
+## 常见错误
+
+- 两个 `V8__*.sql` 并行提交 → Flyway duplicate version。
+- 改 Entity 忘 XML/ResultMap。
+- 列表字段读回 null：缺 `autoResultMap=true`。
+- `Map.of` 不接受 null。
+- MySQL/H2 类型差异导致测试失败。
+- 应用层直接注入 Mapper，绕过领域端口。
+- 在事务中调用外部 HTTP，导致长事务/连接占用。

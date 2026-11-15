@@ -7,7 +7,9 @@ import {
   type UserInfo,
 } from './api'
 
+/** 单次工具调用在气泡下方的状态芯片 */
 type ToolChip = { name: string; status: 'running' | 'done' | 'error'; detail?: string }
+/** 聊天消息（用户或助手），pending 表示正在流式生成 */
 type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
@@ -15,16 +17,21 @@ type ChatMessage = {
   pending?: boolean
   tools?: ToolChip[]
 }
+/** localStorage 中按用户与智能体保存的对话快照 */
 type StoredChat = { sessionId: string | null; messages: ChatMessage[] }
 
+/** 对话留存键：按用户名 + 智能体隔离，不同用户/智能体的记录互不覆盖 */
 const storageKey = (user: UserInfo, agentId: string) => `agent_user_chat_${user.username}_${agentId}`
+/** 构建版本号，由 Vite define 注入；本地开发时显示 dev */
 const BUILD_STAMP = typeof __BUILD_STAMP__ === 'undefined' ? 'dev' : __BUILD_STAMP__
 
+/** 生成消息唯一 ID，优先使用 crypto.randomUUID，旧环境回退为时间戳 + 随机串 */
 function uid() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** 从 localStorage 恢复对话；数据缺失或损坏时返回空状态，不影响页面渲染 */
 function loadStored(user: UserInfo, agentId: string): StoredChat {
   try {
     const raw = localStorage.getItem(storageKey(user, agentId))
@@ -39,6 +46,10 @@ function loadStored(user: UserInfo, agentId: string): StoredChat {
   }
 }
 
+/**
+ * 用户端根组件：登录态、智能体目录与聊天页切换。
+ * 登录信息来自 localStorage；进入聊天页后由 Chat 组件接管。
+ */
 export default function App() {
   const [user, setUser] = useState<UserInfo | null>(() => session.user())
   const [agents, setAgents] = useState<UserAgent[]>([])
@@ -46,6 +57,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // 登录后加载可用智能体；用 cancelled 标记避免组件卸载后写状态
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -58,6 +70,7 @@ export default function App() {
       })
       .catch((err: Error) => {
         if (cancelled) return
+        // token 缺失说明登录态已失效，直接退回登录页
         if (!session.token()) {
           setUser(null)
           return
@@ -72,6 +85,7 @@ export default function App() {
     }
   }, [user])
 
+  /** 退出登录：清除本地 token/资料与当前页面状态 */
   const logout = () => {
     session.clear()
     setUser(null)
@@ -154,12 +168,14 @@ export default function App() {
   )
 }
 
+/** 登录页：提交账号密码，成功后把 token 与用户资料写入 localStorage */
 function Login({ onLogin }: { onLogin: (profile: { accessToken: string; user: UserInfo }) => void }) {
   const [username, setUsername] = useState('viewer')
   const [password, setPassword] = useState('viewer123')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  /** 提交登录表单，失败时展示后端错误 */
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!username.trim() || !password) return
@@ -212,7 +228,13 @@ function Login({ onLogin }: { onLogin: (profile: { accessToken: string; user: Us
   )
 }
 
+/**
+ * 聊天页。
+ * 负责消息列表、SSE 流式接收、工具调用状态展示、localStorage 会话留存、
+ * 历史消息恢复与中止/新建对话。
+ */
 function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBack: () => void }) {
+  // 首次进入时从 localStorage 恢复该用户与该智能体的会话
   const stored = useMemo(() => loadStored(user, agent.id), [user, agent.id])
   const [sessionId, setSessionId] = useState<string | null>(stored.sessionId)
   const [messages, setMessages] = useState<ChatMessage[]>(stored.messages)
@@ -224,6 +246,7 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
   const historyLoaded = useRef(false)
   const initialSessionId = useRef(stored.sessionId)
 
+  // 若存在历史会话，仅首次进入时从后端拉取消息；失败则保留本地记录
   useEffect(() => {
     const sid = initialSessionId.current
     if (!sid || historyLoaded.current) return
@@ -246,6 +269,7 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     }
   }, [])
 
+  // 会话留存：消息或 sessionId 变化后延迟 250ms 写入 localStorage，避免流式期间频繁写盘
   useEffect(() => {
     const timer = setTimeout(() => {
       localStorage.setItem(storageKey(user, agent.id), JSON.stringify({ sessionId, messages }))
@@ -253,17 +277,25 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     return () => clearTimeout(timer)
   }, [messages, sessionId, user, agent.id])
 
+  // 新消息到达时滚动到底部
   useEffect(() => {
     const node = listRef.current
     if (node) node.scrollTop = node.scrollHeight
   }, [messages])
 
+  // 组件卸载时中止正在进行的流式请求
   useEffect(() => () => abortRef.current?.abort(), [])
 
+  /** 按 id 更新指定助手消息的局部状态 */
   const updateAssistant = (id: string, update: (message: ChatMessage) => ChatMessage) => {
     setMessages((prev) => prev.map((message) => (message.id === id ? update(message) : message)))
   }
 
+  /**
+   * 发送消息并通过 SSE 接收回复。
+   * 先乐观插入用户消息与空的助手消息；收到首个 delta 前显示打字动画，
+   * 工具事件更新对应芯片状态；结束后清理 pending。
+   */
   const send = async () => {
     const text = input.trim()
     if (!text || streaming) return
@@ -284,6 +316,7 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
         { agentId: agent.id, message: text, sessionId: sessionId ?? undefined },
         {
           onMeta: (meta) => {
+            // 后端在 meta 中返回会话 ID，用于后续消息续接
             if (typeof meta.sessionId === 'string' && meta.sessionId) setSessionId(meta.sessionId)
           },
           onDelta: (delta) => {
@@ -291,11 +324,13 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
             updateAssistant(assistantId, (m) => ({ ...m, content: m.content + delta }))
           },
           onTool: (tool) =>
+            // 记录工具调用开始，detail 截断展示参数
             updateAssistant(assistantId, (m) => ({
               ...m,
               tools: [...(m.tools ?? []), { name: tool.name, status: 'running', detail: formatArgs(tool.arguments) }],
             })),
           onToolResult: (result) =>
+            // 回填最近一次同名工具调用的结果状态
             updateAssistant(assistantId, (m) => {
               const tools = [...(m.tools ?? [])]
               const index = tools.map((t) => t.name).lastIndexOf(result.name)
@@ -315,9 +350,11 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
         },
         controller.signal,
       )
+      // 流结束但未收到任何增量文本，提示重试
       if (!received) setError('没有收到回复，请稍后重试')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      // 主动停止不视为错误
       if (!(err instanceof Error && err.name === 'AbortError')) {
         setError(message || '发送失败')
         updateAssistant(assistantId, (m) => ({ ...m, pending: false }))
@@ -329,11 +366,13 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     }
   }
 
+  /** 停止当前的流式生成 */
   const stop = () => {
     abortRef.current?.abort()
     setStreaming(false)
   }
 
+  /** 新建对话：中止请求、删除该智能体的本地记录并清空消息 */
   const newChat = () => {
     abortRef.current?.abort()
     localStorage.removeItem(storageKey(user, agent.id))
@@ -420,6 +459,7 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
   )
 }
 
+/** 格式化工具参数为单行 JSON，空对象或序列化失败时返回空串 */
 function formatArgs(args: unknown) {
   if (args == null) return ''
   try {
@@ -430,12 +470,15 @@ function formatArgs(args: unknown) {
   }
 }
 
+/** 右箭头图标 */
 function Arrow() {
   return <svg viewBox="0 0 24 24" className="icon" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
 }
+/** 返回箭头图标 */
 function Back() {
   return <svg viewBox="0 0 24 24" className="icon" aria-hidden="true"><path d="M19 12H6M11 6l-6 6 6 6" /></svg>
 }
+/** 发送图标 */
 function Send() {
   return <svg viewBox="0 0 24 24" className="icon" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5L4 12z" /></svg>
 }

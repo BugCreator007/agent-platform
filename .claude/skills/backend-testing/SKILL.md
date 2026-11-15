@@ -1,59 +1,120 @@
 ---
 name: backend-testing
-description: 为 Agent Platform 后端增加或修改单元测试、Spring 上下文测试、Modulith 边界测试、接口测试和前端契约构建验证时使用。
+description: 为 Agent Platform 增加或运行单元、Spring 上下文、MyBatis、Modulith、接口、SSE、工作流端到端测试，以及前端构建验证时使用。
 ---
 
-# 后端测试与验证
+# 测试开发
 
-## 现有测试
+## 当前测试基线
 
-- `backend/src/test/java/com/agentplatform/ModularityTests.java`：模块边界。
-- `backend/src/test/java/com/agentplatform/ApplicationContextTests.java`：H2 + Flyway 全上下文加载。
-- `backend/src/test/resources/application-test.yml`：测试数据源。
+```text
+backend/src/test/java/com/agentplatform/ApplicationContextTests.java
+backend/src/test/java/com/agentplatform/ModularityTests.java
+backend/src/test/resources/application-test.yml
+```
 
-## 必跑
+- `ApplicationContextTests`：完整上下文 + H2 + Flyway + 种子 + TypeHandler 回读。
+- `ModularityTests`：`ApplicationModules.of(...).verify()`。
+- 目前测试数量很少，新功能必须补充。
+
+## 测试环境
+
+`application-test.yml`：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:h2:mem:agent_platform;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+  flyway:
+    enabled: true
+app:
+  demo:
+    seed: true
+```
+
+- 使用 H2 MySQL 模式，Flyway 执行真实迁移。
+- 每次测试上下文启动都会应用 V1..Vn；迁移必须兼容 H2。
+- 种子数据在测试中会写入；测试不要依赖固定用户数据以外的顺序。
+
+## 命令
 
 ```bash
 cd backend
 export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 mvn test
 
-cd ../admin-web
-npm run build
+cd ../admin-web && npm run build
+cd ../user-web && npm run build
 ```
 
-## 测试分层
+## 测试层次
 
-- 领域单元测试：不启动 Spring，验证状态机和业务不变量。
-- 应用服务测试：Mock repository 或 H2。
-- 接口测试：`@SpringBootTest`/MockMvc，带 JWT 和角色。
-- Modulith：`ApplicationModules.of(...).verify()`，跨模块依赖必须通过 `@NamedInterface`。
-- E2E：登录 → 创建/编辑 → 调用运行时/工作流 → 删除。
+### 1. Domain 单元测试
 
-## 使用 H2
+- 状态机合法/非法迁移。
+- 价格/额度计算。
+- 路由排序、表达式求值。
+- 不启动 Spring。
 
-测试 profile 已启用 H2 MySQL 模式和 Flyway。新增迁移必须同时兼容 MySQL 与 H2：
-- 避免 MySQL 特有函数。
-- 不使用 `JSON` 类型，使用 `TEXT/LONGTEXT`。
-- 自增主键使用 `BIGINT AUTO_INCREMENT`。
+### 2. 上下文 / MyBatis 测试
 
-## 外部依赖
+- `@SpringBootTest @ActiveProfiles("test")`
+- 验证 Mapper、TypeHandler、Repository 转换。
+- 新增表/字段必须有迁移测试。
+- 列表/JSON 字段写入后读回。
 
-- 单元/上下文测试不要依赖真实 MySQL、Redis、Milvus、ES。
-- 集成测试使用 Testcontainers 或显式 profile；不要默认启动外部服务。
-- DeepSeek 测试使用 mock/fallback，不要把 Key 写进测试。
+### 3. 接口测试
 
-## 失败排查
+- 使用 `@SpringBootTest(webEnvironment=RANDOM_PORT)` + `TestRestTemplate`/MockMvc。
+- 关键断言：401、403、200、400、404、409。
+- 登录获取 JWT 后带 `Authorization`。
+- SSE 用 `WebClient` 或直接调用 runtime 服务验证事件。
 
-- `Schema-validation: missing table`：Flyway 未执行或迁移被 baseline 跳过。
-- `TransactionRequiredException`：derived delete 缺 `@Transactional`。
-- Modulith `non-exposed type`：增加 `@NamedInterface` 或调整依赖方向，不要把 infrastructure 暴露。
-- `Map.of` NPE：检查 null 的 providerId/modelId。
+### 4. 运行时 E2E（手工/脚本）
 
-## 验证清单
+- 启动真实 MySQL + Redis + 后端。
+- Agent SSE：`meta/delta/done`，MCP 时 `tool/tool-result`。
+- 工作流：条件、并行、JOIN、TIMER、SUBFLOW、NOTIFY、补偿、审批。
+- 知识库：上传、分块、检索测试。
+- 模型路由：provider test、真实 DeepSeek、mock fallback。
 
-- [ ] `mvn test` 通过
-- [ ] `npm run build` 通过
-- [ ] 关键接口 401/403/200
-- [ ] 新增迁移在 H2 和 MySQL 都执行
-- [ ] 没有提交 `.env`、密钥、日志中的敏感信息
+### 5. 前端
+
+- `npm run build` 是类型检查和打包的最低门槛。
+- 页面改动至少验证登录、加载、空态、错误态。
+- SSE 页面要验证增量、停止、错误。
+- 深色/浅色主题都要看。
+
+## 测试数据
+
+- 不要删除用户创建的智能体/流程/数据集，除非明确确认。
+- 测试流程/实例可用 `wf-<8hex>` 正则识别并清理。
+- 测试数据库使用独立 `agent-mysql-local`，不要动生产/远程。
+- 清理时先删 node_runs/messages 等子表，再删主表。
+
+## Modulith
+
+- 新模块必须跑 `ModularityTests`。
+- 跨模块依赖只允许 NamedInterface。
+- 循环依赖会让测试失败。
+
+## 常见失败
+
+- H2 不支持 MySQL 语法 → 改迁移或 SQL。
+- Flyway duplicate version → 两个同版本文件。
+- TypeHandler 读回 null → `autoResultMap` 缺失。
+- 测试依赖种子顺序 → 先查后断言。
+- 接口测试没有 Token → 401，不是业务逻辑失败。
+- SSE 测试阻塞在流读取 → 设置超时/取消。
+- 前端 build 失败常是 api.ts 与页面类型不同步。
+
+## 新增功能验收清单
+
+- [ ] Domain 规则单元测试。
+- [ ] 新表/字段迁移在 H2 通过。
+- [ ] 仓储读写/TypeHandler 通过。
+- [ ] 接口 401/403/200。
+- [ ] 关键 SSE/工作流/RAG 手工 E2E。
+- [ ] 两个前端 build。
+- [ ] 不提交 `.env`/密钥。
+- [ ] 迁移/配置/回滚写入文档。

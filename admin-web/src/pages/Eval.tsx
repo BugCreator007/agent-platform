@@ -13,6 +13,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 评测中心页：评测集卡片、最近运行、版本对比与评测报告 */
 export function EvalPage() {
   const queryClient = useQueryClient()
   const [selectedSuite, setSelectedSuite] = useState<EvalSuite | null>(null)
@@ -24,6 +25,7 @@ export function EvalPage() {
   const suites = useQuery({ queryKey: ['eval-suites'], queryFn: () => api.get<EvalSuite[]>('/eval-suites') })
   const runs = useQuery({ queryKey: ['eval-runs'], queryFn: () => api.get<EvalRun[]>('/eval-runs') })
 
+  /** 运行评测：完成后失效运行列表缓存并打开报告 */
   const run = useMutation({
     mutationFn: (suite: EvalSuite) => api.post<EvalRun>('/eval-runs', { suiteId: suite.id, agentName: '售后工单助手', version: 'v25' }),
     onSuccess: (r) => {

@@ -1,3 +1,4 @@
+/** 管理后台的模块标识，与路由、页面组件和导航一一对应 */
 export type ModuleKey =
   | 'overview'
   | 'agents'
@@ -13,6 +14,7 @@ export type ModuleKey =
   | 'cost'
   | 'settings'
 
+/** 模块定义：用于侧边导航、路由表与全局搜索 */
 export interface ModuleDefinition {
   key: ModuleKey
   label: string
@@ -21,6 +23,7 @@ export interface ModuleDefinition {
   group: '工作台' | '构建' | '运维'
 }
 
+/** 全部模块清单，顺序即导航展示顺序 */
 export const modules: ModuleDefinition[] = [
   { key: 'overview', label: '运营概览', path: '/overview', group: '工作台', description: '全局健康度、核心指标、告警与待办。' },
   { key: 'agents', label: '智能体', path: '/agents', group: '工作台', description: '智能体定义、提示词、工具与知识绑定。' },

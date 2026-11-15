@@ -13,7 +13,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 供运营概览等跨模块查询使用的会话分析入口。
+ * 供运营概览等跨模块查询使用的会话分析入口（application 层）。
+ *
+ * <p>基于 {@link SessionAnalyticsPort} 读取轻量会话事实，在内存中完成智能体维度聚合，
+ * 不加载完整会话聚合，避免 trace 等大字段带来的额外开销。</p>
  */
 @Service
 public class SessionAnalyticsService {
@@ -26,6 +29,13 @@ public class SessionAnalyticsService {
         this.port = port;
     }
 
+    /**
+     * 查询时间窗口内的会话事实；窗口非法时直接返回空列表。
+     *
+     * @param from 窗口起始时间（含），不能为 null
+     * @param to   窗口结束时间（不含），必须晚于 {@code from}
+     * @return 会话事实列表；参数非法或无数据时返回空列表
+     */
     public List<SessionFact> sessions(Instant from, Instant to) {
         if (from == null || to == null || !from.isBefore(to)) {
             return List.of();
@@ -35,6 +45,10 @@ public class SessionAnalyticsService {
 
     /**
      * 按智能体汇总时间窗口内的会话数、成功率与 P95 时延。
+     *
+     * @param from 窗口起始时间（含）
+     * @param to   窗口结束时间（不含）
+     * @return 按会话数降序、同数按智能体 ID 升序排列的指标列表；无数据时为空列表
      */
     public List<AgentSessionStat> agentStats(Instant from, Instant to) {
         Map<String, List<SessionFact>> byAgent = sessions(from, to).stream()
@@ -42,6 +56,7 @@ public class SessionAnalyticsService {
                 .collect(Collectors.groupingBy(SessionFact::agentId, LinkedHashMap::new, Collectors.toList()));
         List<AgentSessionStat> stats = new ArrayList<>(byAgent.size());
         byAgent.forEach((agentId, facts) -> {
+            // 只统计已有终态的会话：running 等中间态不计入成功率分母，避免指标被拉低。
             List<SessionFact> done = facts.stream()
                     .filter(f -> f.status() != null)
                     .filter(f -> SUCCESS.equalsIgnoreCase(f.status())
@@ -61,6 +76,7 @@ public class SessionAnalyticsService {
         return stats;
     }
 
+    // 计算 P95：升序排序后取 ceil(0.95 * n) - 1 位置，并把下标收敛到有效范围。
     private static long percentile(List<Long> values, double percentile) {
         if (values.isEmpty()) return 0;
         List<Long> sorted = new ArrayList<>(values);

@@ -12,6 +12,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 平台设置页：成员角色、API 密钥、审计日志与安全护栏配置 */
 export function SettingsPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState('members')
@@ -26,16 +27,19 @@ export function SettingsPage() {
   const keys = useQuery({ queryKey: ['api-keys'], queryFn: () => api.get<ApiKey[]>('/api-keys') })
   const audit = useQuery({ queryKey: ['audit'], queryFn: () => api.get<AuditLog[]>('/audit-logs') })
 
+  /** 修改成员角色 */
   const changeRole = useMutation({
     mutationFn: ({ name, role }: { name: string; role: string }) => api.put<Member>(`/members/${encodeURIComponent(name)}/role`, { role }),
     onSuccess: () => { toast('角色已更新'); queryClient.invalidateQueries({ queryKey: ['members'] }) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 邀请新成员 */
   const invite = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post<Member>('/members', body),
     onSuccess: () => { toast('邀请已发送'); setInviteOpen(false); setInviteForm({ name: '', email: '', role: '开发者' }); queryClient.invalidateQueries({ queryKey: ['members'] }) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 创建 API 密钥，明文仅在创建成功后展示一次 */
   const createKey = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post<ApiKey>('/api-keys', body),
     onSuccess: (k) => { setKeyOpen(false); setCreatedKey(k.key); setKeyForm({ name: '', scope: 'runtime:read' }); queryClient.invalidateQueries({ queryKey: ['api-keys'] }) },

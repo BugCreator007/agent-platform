@@ -15,6 +15,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 图表数据的空结构，接口未返回时用于安全渲染 */
 const EMPTY_SERIES = {
   labels: [] as string[],
   sessions: [] as number[],
@@ -24,6 +25,10 @@ const EMPTY_SERIES = {
   cost: [] as number[],
 }
 
+/**
+ * 计算环比数值的颜色。
+ * @param higherIsBetter 指标越高越好时（如成功率）正增长为绿色，否则（如延迟/成本）负增长为绿色
+ */
 function deltaTone(value: string, higherIsBetter: boolean) {
   if (!value || value === '—' || value.startsWith('0')) return ''
   const negative = value.startsWith('-')
@@ -31,10 +36,12 @@ function deltaTone(value: string, higherIsBetter: boolean) {
   return good ? 'up' : 'down'
 }
 
+/** 运营概览页：实时脉搏、KPI、趋势图表、智能体健康度与告警待办汇总 */
 export function OverviewPage() {
   const navigate = useNavigate()
   const [range, setRange] = useState(7)
   const [showTable, setShowTable] = useState(false)
+  // range 变化会切换 queryKey，触发重新请求；每 60 秒自动刷新一次
   const { data, isLoading, isError } = useQuery({
     queryKey: ['overview', range],
     queryFn: () => api.get<Overview>(`/overview?range=${range}`),
@@ -43,6 +50,7 @@ export function OverviewPage() {
 
   const chart = data?.series ?? EMPTY_SERIES
   const agents = useMemo(() => data?.agents ?? [], [data])
+  // 将接口返回的智能体按会话量排序展示前 5 个，其余数量在 footer 中汇总
   const health = agents.filter((a) => ['running', 'grayscale', 'paused'].includes(a.status)).slice(0, 5)
   const activeAlerts = data?.alerts.filter((a) => a.status === 'active') ?? []
   const pendingReleases = data?.releases.filter((r) => ['approve', 'canary', 'draft'].includes(r.stage)) ?? []
@@ -51,6 +59,10 @@ export function OverviewPage() {
   const tailCount = Math.max(0, agents.length - 5)
   const tailSessions = agents.slice(5).reduce((sum, a) => sum + a.sessions, 0)
 
+  /**
+   * 导出报表：将 KPI 与趋势序列拼装为 CSV，通过 Blob + 临时 <a> 触发下载。
+   * 内容前加 BOM，保证 Excel 正确识别 UTF-8 中文。
+   */
   const exportReport = () => {
     const rows = [
       ['指标', '数值'],
@@ -280,6 +292,7 @@ export function OverviewPage() {
   )
 }
 
+/** 实时吞吐面积图：数值按最大值归一化后绘制折线 + 渐变填充 + 末端圆点 */
 function PulseChart({ values }: { values: number[] }) {
   const width = 320
   const height = 86

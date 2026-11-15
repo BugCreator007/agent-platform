@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- Agent 表映射：单表 CRUD 由 MyBatis-Plus BaseMapper 提供，自定义 SQL 与类型映射在下方维护 -->
 <mapper namespace="com.agentplatform.modules.agent.infrastructure.persistence.mapper.AgentMapper">
+  <!-- 结果映射：autoMapping 处理普通列，typeHandler 处理列表/JSON 字段 -->
   <resultMap id="BaseResultMap" type="com.agentplatform.modules.agent.infrastructure.persistence.entity.AgentEntity" autoMapping="true">
     <id column="id" property="id"/>
     <result column="tools" property="tools" typeHandler="com.agentplatform.common.persistence.StringListTypeHandler"/>

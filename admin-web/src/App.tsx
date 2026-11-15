@@ -22,7 +22,9 @@ import {
   WorkflowPage,
 } from './pages'
 
+/** 主题模式：跟随系统 / 浅色 / 深色 */
 type ThemeMode = 'system' | 'light' | 'dark'
+/** localStorage 中保存主题偏好的键名 */
 const THEME_KEY = 'agent-theme'
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: string }> = [
   { value: 'system', label: '跟随系统', icon: 'monitor' },
@@ -30,6 +32,7 @@ const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: string }> = 
   { value: 'dark', label: '深色', icon: 'moon' },
 ]
 
+/** 从 localStorage 读取主题偏好，非法值或存储不可用时回退为 system */
 function readThemeMode(): ThemeMode {
   try {
     const saved = localStorage.getItem(THEME_KEY)
@@ -40,6 +43,11 @@ function readThemeMode(): ThemeMode {
   return 'system'
 }
 
+/**
+ * 主题管理 Hook。
+ * 监听系统配色偏好，将解析后的主题写入 <html data-theme> 与 CSS color-scheme，
+ * 并把用户选择的模式持久化到 localStorage。
+ */
 function useTheme() {
   const [mode, setMode] = useState<ThemeMode>(readThemeMode)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -67,6 +75,7 @@ function useTheme() {
   return { mode, setMode, resolved }
 }
 
+/** 模块 key 到图标 sprite 名称的映射 */
 const iconMap: Record<ModuleKey, string> = {
   overview: 'overview',
   agents: 'agents',
@@ -83,6 +92,7 @@ const iconMap: Record<ModuleKey, string> = {
   settings: 'settings',
 }
 
+/** 模块 key 到页面组件的映射，供路由动态渲染 */
 const pageMap: Record<ModuleKey, React.ComponentType> = {
   overview: OverviewPage,
   agents: AgentsPage,
@@ -99,17 +109,20 @@ const pageMap: Record<ModuleKey, React.ComponentType> = {
   settings: SettingsPage,
 }
 
+/** 后端系统信息接口返回结构 */
 interface SystemInfo {
   success: boolean
   data?: { service: string; status: string }
 }
 
+/** 探测后端健康状态；非 2xx 时抛出异常，由 React Query 标记为错误态 */
 async function fetchSystemInfo(): Promise<SystemInfo> {
   const response = await fetch('/api/v1/system/info')
   if (!response.ok) throw new Error('backend unavailable')
   return response.json()
 }
 
+/** 侧边导航徽标所需的数量统计 */
 interface NavStats {
   agents: number
   sessions: number
@@ -119,6 +132,11 @@ interface NavStats {
   alerts: number
 }
 
+/**
+ * 汇总各模块的导航徽标数量。
+ * 复用与页面相同的 React Query key，命中缓存后不会重复请求；
+ * 会话只统计运行中、发布只统计待审批、告警只统计活跃项。
+ */
 function useNavStats(): NavStats {
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: () => api.get<ChatSession[]>('/sessions') })
@@ -136,12 +154,17 @@ function useNavStats(): NavStats {
   }
 }
 
+/** 可切换的环境列表（仅前端演示，不影响真实请求） */
 const ENVS = [
   { id: 'prod', name: '生产', region: '华东 1', detail: '真实流量 · 受保护' },
   { id: 'pre', name: '预发', region: '华东 1', detail: '发布前验证 · 独立数据' },
   { id: 'test', name: '测试', region: '华东 1', detail: '开发联调 · 可写' },
 ]
 
+/**
+ * 后台主框架：左侧模块导航 + 顶栏 + 路由视图。
+ * 同时承载全局搜索面板（⌘K）、通知、环境切换、主题菜单和交互导览。
+ */
 function Shell({
   onLogout,
   themeMode,
@@ -170,13 +193,16 @@ function Shell({
   const [themeOpen, setThemeOpen] = useState(false)
   const themeAnchorRef = useRef<HTMLDivElement>(null)
 
+  // 根据当前路径前缀匹配选中模块，未匹配时回退到概览
   const selected = modules.find((m) => location.pathname.startsWith(m.path))?.key ?? 'overview'
   const current = modules.find((m) => m.key === selected)!
+  // 侧边栏按“工作台 / 构建 / 运维”分组展示模块
   const groups = [
     { label: '工作台', items: modules.filter((m) => m.group === '工作台') },
     { label: '构建', items: modules.filter((m) => m.group === '构建') },
     { label: '运维', items: modules.filter((m) => m.group === '运维') },
   ]
+  /** 计算导航项右侧的数字徽标，无数据时返回 null 不渲染 */
   const badgeFor = (key: ModuleKey): string | null => {
     if (key === 'agents' && stats.agents) return String(stats.agents)
     if (key === 'sessions' && stats.sessions) return String(stats.sessions)
@@ -187,6 +213,7 @@ function Shell({
     return null
   }
 
+  // 全局快捷键：⌘/Ctrl + K 打开或关闭搜索面板
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -198,6 +225,7 @@ function Shell({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // 主题弹层打开时，点击外部或按 Esc 关闭
   useEffect(() => {
     if (!themeOpen) return
     const onPointerDown = (event: MouseEvent) => {
@@ -214,12 +242,14 @@ function Shell({
     }
   }, [themeOpen])
 
+  /** 关闭搜索面板并跳转到目标模块 */
   const openModule = (key: ModuleKey) => {
     setPaletteOpen(false)
     setPaletteQuery('')
     navigate(modules.find((m) => m.key === key)?.path ?? '/overview')
   }
 
+  // 搜索面板结果：页面按标签/描述/key 过滤，智能体与会话仅在有关键词时模糊匹配
   const paletteItems = useMemo(() => {
     const q = paletteQuery.trim().toLowerCase()
     return modules.filter((m) => !q || `${m.label}${m.description}${m.key}`.toLowerCase().includes(q))
@@ -235,6 +265,7 @@ function Shell({
     return (sessionsQuery.data ?? []).filter((s) => `${s.id}${s.agentName}${s.topic}`.toLowerCase().includes(q)).slice(0, 4)
   }, [sessionsQuery.data, paletteQuery])
 
+  /** 交互导览步骤：每步对应一个模块与说明文案 */
   const tourSteps = [
     { view: 'overview' as ModuleKey, title: '运营概览', text: '实时脉搏、核心指标、智能体健康度、告警与待办发布都在这里汇总。' },
     { view: 'agents' as ModuleKey, title: '智能体', text: '创建智能体，打开详情修改提示词、绑定工具与知识库，并在沙盒中调试。' },
@@ -492,6 +523,10 @@ function Shell({
   )
 }
 
+/**
+ * 生成交互导览卡片。
+ * 最后一步点击“完成”时关闭导览；中间步骤先跳转对应模块再前进。
+ */
 function createTour(
   steps: Array<{ view: ModuleKey; title: string; text: string }>,
   step: number,
@@ -534,8 +569,13 @@ function createTour(
 }
 
 
+/**
+ * 应用根组件：负责登录态与主题。
+ * 未登录时渲染登录页；监听 `auth-expired` 事件（由 api 层在 401 时派发）强制退回登录页。
+ */
 export default function App() {
   const theme = useTheme()
+  // 初始登录态来自 localStorage 中的 token
   const [authed, setAuthed] = useState(auth.isAuthenticated())
 
   useEffect(() => {
@@ -545,6 +585,7 @@ export default function App() {
   }, [])
 
   if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />
+  // 退出时先通知后端注销，无论成功与否都清除本地 token 并回到登录页
   return (
     <Shell
       onLogout={() => { api.post('/auth/logout').catch(() => undefined).finally(() => { auth.clear(); setAuthed(false) }) }}

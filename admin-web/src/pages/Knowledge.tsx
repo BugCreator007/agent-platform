@@ -14,19 +14,28 @@ import {
   toast,
 } from '../components/ui'
 
+/** 字节数格式化为 KB / MB 展示 */
 const formatBytes = (bytes: number) => bytes >= 1024 * 1024
   ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
   : `${Math.max(1, Math.round(bytes / 1024))} KB`
 
+/** 可选的 Embedding 模型 */
 const EMBEDDING = ['bge-m3', 'text-embedding-3-large', 'qwen3-embedding', 'bge-large-zh']
+/** 可选的文档解析器 */
 const PARSERS = ['默认解析', '自动识别', 'PDF 结构化解析', 'Word 解析', 'Markdown 解析']
+/** 可选的切分策略 */
 const CHUNKERS = ['按标题层级', '固定长度', '语义分块', '按段落']
+/** 检索模式选项 */
 const RETRIEVAL = [
   { value: 'hybrid', label: '混合检索' },
   { value: 'vector', label: '向量检索' },
   { value: 'keyword', label: '关键词检索' },
 ]
 
+/**
+ * 知识库页：数据集配置（解析/切分/索引/检索/授权）、文档上传与网页抓取、
+ * 检索测试以及文档版本替换与回滚。
+ */
 export function KnowledgePage() {
   const queryClient = useQueryClient()
   const [datasetId, setDatasetId] = useState<string>()
@@ -49,8 +58,10 @@ export function KnowledgePage() {
 
   const datasets = useQuery({ queryKey: ['datasets'], queryFn: () => api.get<Dataset[]>('/datasets') })
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
+  // 优先使用用户选择的数据集，否则默认 kb-refund，再回退第一个
   const selected = datasetId ?? datasets.data?.find((d) => d.id === 'kb-refund')?.id ?? datasets.data?.[0]?.id
   const ds = datasets.data?.find((d) => d.id === selected)
+  // 文档列表每 3 秒轮询，用于跟踪上传/解析/索引进度
   const docs = useQuery({
     queryKey: ['documents', selected],
     queryFn: () => api.get<Document[]>(`/datasets/${selected}/documents`),
@@ -58,6 +69,7 @@ export function KnowledgePage() {
     refetchInterval: 3000,
   })
 
+  // 切换数据集时，用后端配置初始化本地草稿（未保存的修改不会带入新数据集）
   useEffect(() => {
     if (ds) setDraft({
       parser: ds.parser, chunkStrategy: ds.chunkStrategy, chunkSize: ds.chunkSize, overlap: ds.overlap,
@@ -66,16 +78,19 @@ export function KnowledgePage() {
     })
   }, [ds?.id])
 
+  /** 刷新数据集与当前文档列表缓存 */
   const refreshAll = () => {
     queryClient.invalidateQueries({ queryKey: ['datasets'] })
     queryClient.invalidateQueries({ queryKey: ['documents', selected] })
   }
 
+  /** 保存数据集完整配置（草稿 + 局部覆盖） */
   const saveConfig = useMutation({
     mutationFn: (patch: Partial<Dataset>) => api.put<Dataset>(`/datasets/${selected}`, { ...draft, ...patch }),
     onSuccess: () => { toast('配置已保存，如需生效请重建索引'); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 仅保存解析与切分配置（上传前调整） */
   const saveChunkConfig = useMutation({
     mutationFn: () => api.put<Dataset>(`/datasets/${selected}`, {
       parser: draft.parser,
@@ -86,21 +101,25 @@ export function KnowledgePage() {
     onSuccess: () => { toast('解析与切分配置已保存，上传时将使用新配置'); setConfigDrawerOpen(false); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 重建数据集向量索引 */
   const reindex = useMutation({
     mutationFn: () => api.post<Dataset>(`/datasets/${selected}/reindex`),
     onSuccess: () => { toast('索引已重建'); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 检索测试：用当前问题召回分块并展示得分 */
   const retrieval = useMutation({
     mutationFn: () => api.post<RetrievalResult>(`/datasets/${selected}/retrieval-test`, { query }),
     onSuccess: (r) => { setResult(r); toast(`命中 ${r.hits.length} 条`) },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 创建数据集并自动切换到新数据集 */
   const createDataset = useMutation({
     mutationFn: () => api.post<Dataset>('/datasets', createForm),
     onSuccess: (d) => { toast('数据集已创建'); setCreateOpen(false); setDatasetId(d.id); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 上传文档，使用 FormData 以 multipart 方式提交文件 */
   const upload = useMutation({
     mutationFn: () => {
       if (!uploadFile) throw new Error('请先选择文件')
@@ -111,16 +130,19 @@ export function KnowledgePage() {
     onSuccess: () => { toast('文档已上传'); setUploadOpen(false); setUploadFile(null); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 删除文档 */
   const removeDoc = useMutation({
     mutationFn: (id: string) => api.del<void>(`/documents/${id}`),
     onSuccess: () => { toast('文档已删除'); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 通过网页 URL 抓取内容并写入知识库 */
   const addWeb = useMutation({
     mutationFn: () => api.post<Document>(`/datasets/${selected}/documents:web`, webForm),
     onSuccess: () => { toast('网页已加入知识库，正在解析索引'); setWebOpen(false); setWebForm({ url: '', name: '', cookie: '' }); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 替换文档文件，生成新版本并重新索引 */
   const replace = useMutation({
     mutationFn: ({ doc, file }: { doc: Document; file: File }) => {
       const form = new FormData()
@@ -130,6 +152,7 @@ export function KnowledgePage() {
     onSuccess: () => { toast('文档已替换，新版本正在索引'); setReplaceDoc(null); refreshAll() },
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  /** 回滚文档到指定历史版本 */
   const rollback = useMutation({
     mutationFn: ({ doc, version }: { doc: Document; version: number }) => api.post<Document>(`/documents/${doc.id}/rollback`, { version }),
     onSuccess: () => { toast('已回滚到指定版本'); setVersionsDoc(null); refreshAll() },
@@ -141,6 +164,7 @@ export function KnowledgePage() {
   const totalChunks = datasets.data?.reduce((s, d) => s + d.chunks, 0) ?? 0
   const authAgents = draft.authAgents ?? ds?.authAgents ?? []
 
+  /** 选择上传文件并做 50 MB 大小校验 */
   const chooseFile = (file: File | null) => {
     if (!file) return
     if (file.size > 50 * 1024 * 1024) { toast('文件不能超过 50 MB', 'err'); return }

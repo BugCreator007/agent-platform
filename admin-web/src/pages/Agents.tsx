@@ -26,6 +26,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 智能体状态筛选选项 */
 const STATUS_FILTERS = [
   { key: 'all', label: '全部' },
   { key: 'running', label: '运行中' },
@@ -34,8 +35,10 @@ const STATUS_FILTERS = [
   { key: 'draft', label: '草稿' },
 ]
 
+/** 头像配色循环使用的色调 */
 const TONES = ['blue', 'amber', 'aqua', 'violet', 'orange']
 
+/** 智能体管理页：列表筛选、详情抽屉、编辑弹窗、新建向导与沙盒调试 */
 export function AgentsPage() {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('all')
@@ -48,6 +51,7 @@ export function AgentsPage() {
   const [editTarget, setEditTarget] = useState<Agent | null>(null)
   const [editForm, setEditForm] = useState({ name: '', owner: '', team: '', providerId: '', modelId: '', model: '', prompt: '', tools: [] as string[], kb: [] as string[] })
 
+  // 基础数据查询：智能体、今日统计（60 秒轮询）、工具、知识库、模型与厂商
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
   const agentStats = useQuery({
     queryKey: ['agent-stats'],
@@ -59,8 +63,13 @@ export function AgentsPage() {
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.get<ModelInfo[]>('/models') })
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api.get<Provider[]>('/providers') })
 
+  /** 使智能体列表缓存失效，触发重新拉取 */
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['agents'] })
 
+  /**
+   * 智能体操作（暂停 / 恢复 / 发布）。
+   * 成功后先本地更新列表缓存，再失效重新请求，减少界面闪烁。
+   */
   const action = useMutation({
     mutationFn: ({ id, act }: { id: string; act: string }) => api.post<Agent>(`/agents/${id}/${act}`),
     onSuccess: (agent, vars) => {
@@ -72,6 +81,7 @@ export function AgentsPage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  /** 保存提示词草稿（不直接发布线上版本） */
   const savePrompt = useMutation({
     mutationFn: () => api.put<Agent>(`/agents/${selected!.id}`, {
       prompt: promptDraft,
@@ -90,6 +100,7 @@ export function AgentsPage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  /** 保存编辑弹窗中的完整智能体配置 */
   const saveEdit = useMutation({
     mutationFn: () => api.put<Agent>(`/agents/${editTarget!.id}`, editForm),
     onSuccess: (agent) => {
@@ -102,6 +113,7 @@ export function AgentsPage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  // 切换选中的智能体时，重置提示词草稿并回到概览页签
   useEffect(() => {
     if (selected) {
       setPromptDraft(selected.prompt)
@@ -109,13 +121,16 @@ export function AgentsPage() {
     }
   }, [selected?.id])
 
+  // 将统计列表转成 Map，避免渲染时逐个 find 造成 O(n²)
   const statsById = useMemo(() => new Map((agentStats.data ?? []).map((s) => [s.agentId, s])), [agentStats.data])
 
+  // 把会话统计合并进智能体基础数据，供列表与详情展示
   const enriched = useMemo(() => (agents.data ?? []).map((a) => {
     const s = statsById.get(a.id)
     return { ...a, sessions: s?.sessions ?? 0, success: s?.success ?? 0, p95: s?.p95 ?? '—' }
   }), [agents.data, statsById])
 
+  // 按状态与关键词过滤，关键词匹配名称、标识、负责人与业务线
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return enriched.filter((a) =>
@@ -129,11 +144,13 @@ export function AgentsPage() {
   const selectedSuccess = selectedStat?.success ?? 0
   const selectedP95 = selectedStat?.p95 ?? '—'
 
+  /** 打开详情抽屉 */
   const openAgent = (agent: Agent) => {
     setSelected(agent)
     setPromptDraft(agent.prompt)
   }
 
+  /** 打开编辑弹窗，并用当前智能体数据初始化表单（数组做浅拷贝避免引用污染） */
   const openEdit = (agent: Agent) => {
     setEditTarget(agent)
     setEditForm({
@@ -370,6 +387,7 @@ export function AgentsPage() {
   )
 }
 
+/** 根据当前版本号生成最近 4 个版本的演示数据 */
 function versionList(agent: Agent) {
   const current = parseInt(agent.version.replace(/\D/g, ''), 10) || 1
   const notes = ['提示词调整，补充退款边界', '增加大额退款审批工具', '优化工具调用顺序', '初始版本']
@@ -380,6 +398,12 @@ function versionList(agent: Agent) {
   }))
 }
 
+/**
+ * 沙盒调试抽屉。
+ * 通过 fetch + ReadableStream 读取 SSE 流：按空行切分事件块，解析 event/data 字段，
+ * 处理 meta（会话与检索信息）、delta（增量文本）、tool / tool-result（工具轨迹）、
+ * done（结束）与 error（错误提示）。组件卸载或切换智能体时中止请求。
+ */
 function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'bot'; text: string }>>([])
   const [input, setInput] = useState('')
@@ -388,9 +412,12 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const [contexts, setContexts] = useState(0)
   const [toolNotes, setToolNotes] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  // 切换智能体时重置会话状态，并中止上一个未完成的流
   useEffect(() => { setMessages([]); setInput(''); setStreaming(false); setSessionId(''); setContexts(0); setToolNotes([]); abortRef.current?.abort() }, [agent?.id])
+  // 组件卸载时确保中止进行中的请求
   useEffect(() => () => abortRef.current?.abort(), [])
 
+  /** 发送消息并以 SSE 流式接收回复 */
   const send = async () => {
     if (!input.trim() || !agent || streaming) return
     const question = input.trim()
@@ -399,6 +426,7 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
     setStreaming(true)
     abortRef.current = new AbortController()
     try {
+      // 手动附带 Authorization 头，SSE 请求同样需要鉴权 token
       const token = auth.token()
       const response = await fetch('/api/v1/runtime/sessions:stream', {
         method: 'POST',
@@ -407,6 +435,7 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
         signal: abortRef.current.signal,
       })
       if (!response.ok || !response.body) throw new Error(`运行失败：${response.status}`)
+      // 流式读取：以 \n\n 分隔 SSE 事件块，最后一段不完整的数据留在 buffer 中等待下一块
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -417,6 +446,7 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
         const events = buffer.split('\n\n')
         buffer = events.pop() ?? ''
         for (const block of events) {
+          // 每个事件块包含 event: 与可多行的 data: 字段
           const lines = block.split('\n')
           const event = lines.find((l) => l.startsWith('event:'))?.slice(6).trim()
           const data = lines.filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('\n')
@@ -428,6 +458,7 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
               setContexts(meta.contexts ?? 0)
             } catch { /* ignore */ }
           } else if (event === 'delta') {
+            // 增量文本追加到最后一条机器人消息上
             setMessages((prev) => prev.map((m, i) => i === prev.length - 1 ? { ...m, text: m.text + data } : m))
           } else if (event === 'tool') {
             try { const t = JSON.parse(data); setToolNotes((prev) => [...prev, `调用工具 · ${t.name}`]) } catch { /* ignore */ }
@@ -442,6 +473,7 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
         }
       }
     } catch (e) {
+      // 主动中止不提示错误，其余异常通过 Toast 展示
       if ((e as Error).name !== 'AbortError') toast((e as Error).message, 'err')
     } finally {
       setStreaming(false)
@@ -488,6 +520,10 @@ function DebugDrawer({ agent, onClose }: { agent: Agent | null; onClose: () => v
   )
 }
 
+/**
+ * 新建智能体三步向导：基本信息 → 模型与能力 → 确认创建。
+ * 打开时默认选择 DeepSeek V4（找不到时回退到 DeepSeek 或第一个模型）。
+ */
 function CreateAgentWizard({
   open, onClose, models, providers, tools, datasets, onCreated,
 }: {
@@ -507,11 +543,13 @@ function CreateAgentWizard({
     model: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.name ?? '', prompt: '你是企业的智能助手，回答前先核实信息，不承诺系统外的事项。',
     tools: [] as string[], kb: [] as string[],
   })
+  /** 创建提交，成功后交给父组件刷新列表并打开详情 */
   const create = useMutation({
     mutationFn: () => api.post<Agent>('/agents', form),
     onSuccess: onCreated,
     onError: (e: Error) => toast(e.message, 'err'),
   })
+  // 每次打开向导时回到第一步，并把默认模型同步到表单
   useEffect(() => {
     if (open && models.length) {
       const preferred = models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0]

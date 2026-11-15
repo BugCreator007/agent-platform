@@ -3,12 +3,17 @@ import { api, auth, type LoginResponse } from '../api'
 import { Icon } from '../components/icons'
 import { Button, toast } from '../components/ui'
 
+/** 管理后台登录页：提交账号密码获取 token，并支持一键填入演示账号 */
 export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('admin123')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  /**
+   * 提交登录：成功后将 accessToken 写入 localStorage（auth.setToken），
+   * 再通知父组件切换为已登录视图；失败时展示后端错误信息。
+   */
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -24,6 +29,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
     }
   }
 
+  /** 填入演示账号（管理员 / 开发者 / 只读） */
   const useAccount = (u: string, p: string) => {
     setUsername(u)
     setPassword(p)

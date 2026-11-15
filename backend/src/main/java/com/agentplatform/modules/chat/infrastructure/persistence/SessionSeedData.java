@@ -8,9 +8,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 会话演示种子数据（infrastructure 层）。
+ *
+ * <p>以内存 Map 构造一批状态各异的会话（success / failed / timeout / running），
+ * 仅在 {@link ChatDataSeeder} 首次初始化时读取；不参与运行时持久化。</p>
+ */
 public class SessionSeedData {
     private final Map<String, ChatSession> store = new ConcurrentHashMap<>();
 
+    /**
+     * 构造固定演示数据，覆盖多种会话状态与工具/知识检索 trace。
+     */
     public SessionSeedData() {
         seed("s_9f3a21", "a1", "售后工单助手", "success", 4, 2, 8420, 1180, "14:32:08",
                 "订单 202611130097 想退款，但已签收", normalTrace());
@@ -38,11 +47,13 @@ public class SessionSeedData {
                 "批量退款进度查询", normalTrace());
     }
 
+    // 写入一条种子会话；参数顺序与 ChatSession 记录组件一致。
     private void seed(String id, String agentId, String agentName, String status, int turns,
                       int tools, int tokens, long ms, String time, String topic, List<TraceStep> trace) {
         store.put(id, new ChatSession(id, agentId, agentName, status, turns, tools, tokens, ms, time, topic, trace));
     }
 
+    // 正常链路的 trace：意图识别 → 订单查询 → 知识检索 → 退款预校验 → 生成回复。
     private List<TraceStep> normalTrace() {
         return List.of(
                 new TraceStep("model", "意图识别", 180, 120, "ok", "识别意图：退款咨询 + 订单状态查询"),
@@ -53,6 +64,7 @@ public class SessionSeedData {
         );
     }
 
+    // 失败链路的 trace：风控工具超时后跳过生成，返回兜底话术。
     private List<TraceStep> failedTrace() {
         return List.of(
                 new TraceStep("model", "意图识别", 210, 140, "ok", "识别意图：退款金额争议"),
@@ -62,14 +74,30 @@ public class SessionSeedData {
         );
     }
 
+    /**
+     * 返回全部种子会话的不可变快照。
+     *
+     * @return 种子会话列表
+     */
     public List<ChatSession> findAll() {
         return List.copyOf(store.values());
     }
 
+    /**
+     * 按 ID 查询种子会话。
+     *
+     * @param id 会话 ID
+     * @return 命中的会话；不存在时为空 Optional
+     */
     public Optional<ChatSession> findById(String id) {
         return Optional.ofNullable(store.get(id));
     }
 
+    /**
+     * 写入/覆盖一条种子会话（构造期使用）。
+     *
+     * @param session 会话
+     */
     public void save(ChatSession session) {
         store.put(session.id(), session);
     }

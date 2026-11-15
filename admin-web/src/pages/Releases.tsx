@@ -13,6 +13,7 @@ import {
   toast,
 } from '../components/ui'
 
+/** 发布流水线阶段定义，顺序即推进顺序 */
 const STAGES = [
   { key: 'build', label: '构建' },
   { key: 'eval', label: '评测' },
@@ -21,12 +22,17 @@ const STAGES = [
   { key: 'live', label: '全量' },
 ]
 
+/**
+ * 计算阶段在流水线中的索引。
+ * 草稿视为第 0 步，未知阶段按最后一步（全量）处理。
+ */
 const stageIndex = (stage: string) => {
   if (stage === 'draft') return 0
   const idx = STAGES.findIndex((s) => s.key === stage)
   return idx < 0 ? 4 : idx
 }
 
+/** 发布与版本页：流水线概览、发布记录、审批/灰度/回滚操作与规则说明 */
 export function ReleasePage() {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState('all')
@@ -38,6 +44,7 @@ export function ReleasePage() {
 
   const releases = useQuery({ queryKey: ['releases'], queryFn: () => api.get<Release[]>('/releases') })
 
+  /** 发布操作（审批 / 推进 / 回滚），成功后刷新列表并同步抽屉数据 */
   const act = useMutation({
     mutationFn: ({ id, act, body }: { id: string; act: string; body?: unknown }) => api.post<Release>(`/releases/${id}/${act}`, body),
     onSuccess: (r, vars) => {
@@ -48,6 +55,7 @@ export function ReleasePage() {
     onError: (e: Error) => toast(e.message, 'err'),
   })
 
+  /** 调整灰度流量比例 */
   const saveTraffic = useMutation({
     mutationFn: () => api.put<Release>(`/releases/${selected!.id}/traffic`, { traffic }),
     onSuccess: (r) => {
@@ -64,6 +72,7 @@ export function ReleasePage() {
   const pending = counts('approve')
   const canary = counts('canary')
 
+  /** 打开发布详情，并把灰度比例初始化为当前值 */
   const open = (r: Release) => {
     setSelected(r)
     setTraffic(r.traffic || 20)

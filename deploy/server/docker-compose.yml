@@ -1,6 +1,9 @@
+# 单机腾讯云 CVM 生产部署：MySQL + Redis + 后端 + 管理端 + 用户端
+# 数据卷持久化数据库、Redis 与知识库文件；源码与密钥通过 .env 注入
 name: agent-platform
 
 services:
+  # 业务库：数据落在 mysql-data 卷，低配机器限制缓冲池并关闭 performance_schema
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -25,6 +28,7 @@ services:
       retries: 30
       start_period: 30s
 
+  # Redis：登录限流与 JWT 登出黑名单，数据落在 redis-data 卷
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -37,6 +41,7 @@ services:
       timeout: 3s
       retries: 10
 
+  # 后端：Spring Boot 应用，数据库时区统一 UTC，容器时区上海
   agent-backend:
     build:
       context: ../../backend
@@ -60,6 +65,7 @@ services:
     volumes:
       - backend-files:/data/files
 
+  # 管理后台：Nginx 静态站点，宿主机 HTTP_PORT 映射到 80
   agent-frontend:
     build:
       context: ../../admin-web
@@ -69,6 +75,7 @@ services:
     depends_on:
       - agent-backend
 
+  # 用户端聊天门户：Nginx 静态站点，宿主机 USER_HTTP_PORT 映射到 80
   user-web:
     build:
       context: ../../user-web

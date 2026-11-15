@@ -1,3 +1,4 @@
+/** 内联 SVG 图标 sprite：所有图标以 <symbol id="i-xxx"> 定义，供 Icon 组件按名称引用 */
 export const ICON_SPRITE = `<svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></symbol>
   <symbol id="i-agents" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M8.5 12h.01M15.5 12h.01M9.5 16h5"/></symbol>
@@ -57,10 +58,17 @@ export const ICON_SPRITE = `<svg width="0" height="0" style="position:absolute" 
   <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8.5 21h7M12 17v4"/></symbol>
 </svg>`
 
+/** 将图标 sprite 注入页面（零尺寸隐藏），全局挂载一次即可 */
 export function IconSprite() {
   return <div aria-hidden="true" style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }} dangerouslySetInnerHTML={{ __html: ICON_SPRITE }} />
 }
 
+/**
+ * 通用图标组件。
+ * @param name sprite 中对应的图标名（不含 `i-` 前缀）
+ * @param className 外层样式类，默认 `ic`
+ * @param style 内联样式
+ */
 export function Icon({ name, className = 'ic', style }: { name: string; className?: string; style?: React.CSSProperties }) {
   return (
     <svg className={className} style={style} aria-hidden="true">
