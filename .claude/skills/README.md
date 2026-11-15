@@ -6,7 +6,7 @@
 
 - **基础交付**：功能端到端、DDD 模块、领域模型、持久化、接口、安全。
 - **运行时能力**：Agent 运行时、多模型路由、工具执行、MCP、知识库 RAG、工作流。
-- **质量与上线**：可观测性、测试、代码审查、发布部署。
+- **质量与上线**：可观测性、测试、代码审查、Git 提交、发布部署。
 - **前端与本地**：管理后台、用户端、用户门户后端、本地开发。
 
 ## 技能目录
@@ -29,6 +29,7 @@
 | [backend-testing](backend-testing/SKILL.md) | 单元、上下文、MyBatis、Modulith、接口、SSE、工作流 E2E |
 | [backend-release-deploy](backend-release-deploy/SKILL.md) | Docker、Compose、腾讯云 CVM、TKE、健康检查、备份回滚 |
 | [backend-code-review](backend-code-review/SKILL.md) | 后端/全栈代码审查清单与严重级别 |
+| [git-commit](git-commit/SKILL.md) | 提交前检查、暂存、提交信息、推送、PR、冲突与回滚 |
 | [backend-user-portal](backend-user-portal/SKILL.md) | `/api/v1/user/*`、用户可见智能体、状态白名单、用户 SSE 入口 |
 | [frontend-admin-web](frontend-admin-web/SKILL.md) | 管理后台 React 页面、API 契约、主题、交互 |
 | [frontend-user-web](frontend-user-web/SKILL.md) | 用户端 React、SSE 解析、会话持久化、停止生成、移动端 |
@@ -40,6 +41,7 @@
 - Agent 运行时：`backend-agent-runtime` → `backend-model-routing` → `backend-tool-execution` → `backend-mcp-integration` → `backend-knowledge-rag`。
 - 工作流：`backend-workflow-engine` → `backend-tool-execution` → `backend-observability`。
 - 前端：`frontend-admin-web` / `frontend-user-web` + `backend-api-endpoint` / `backend-user-portal`。
+- 提交/推送：`backend-testing` → `backend-code-review` → `git-commit` → 推送/PR。
 - 上线：`backend-testing` → `backend-code-review` → `backend-release-deploy`。
 - 本地排障：`local-development`。
 

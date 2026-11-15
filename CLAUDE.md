@@ -63,7 +63,7 @@ agent-platform/
 │   └── server/                               单台腾讯云 CVM 部署脚本与 Compose
 ├── scripts/run-backend.sh                    本地打包并后台启动后端
 ├── docs/                                     实现状态、技术文档、演示包
-├── .claude/skills/                           项目级 Claude Code skills（20 个）
+├── .claude/skills/                           项目级 Claude Code skills（21 个）
 ├── CLAUDE.md                                 本文件：开发入口与硬性约定
 ├── README.md
 └── Makefile                                  backend/admin-web/user-web/build/test
@@ -166,6 +166,7 @@ docker compose -f deploy/docker-compose.yml up -d
    - 测试：`.claude/skills/backend-testing`
    - 发布/部署：`.claude/skills/backend-release-deploy`
    - 审查：`.claude/skills/backend-code-review`
+   - 提交/推送/PR：`.claude/skills/git-commit`
    - 用户门户后端：`.claude/skills/backend-user-portal`
    - 管理后台前端：`.claude/skills/frontend-admin-web`
    - 用户端前端：`.claude/skills/frontend-user-web`
@@ -186,6 +187,8 @@ docker compose -f deploy/docker-compose.yml up -d
 - 不把真实密钥、`.env`、API Key、Cookie 写进代码或提交。
 - 所有新增代码使用中文注释：类/接口/枚举、public 方法、关键字段、复杂状态机/降级/事务/并发/补偿逻辑。
 - 任何改动至少验证：`mvn test`、`npm run build`，以及关键接口 401/403/200。
+- Git 提交遵循 `.claude/skills/git-commit`：`<type>(scope): subject` + 中文正文；正文写明迁移/配置/回滚与验证结果；一个提交只做一件事。
+- 提交前检查 `.env`、密钥、Token、Cookie 与生成物未入库；已推送历史不改写，禁止对共享分支 force push。
 
 ## 当前运行配置
 
