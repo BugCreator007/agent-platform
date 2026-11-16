@@ -46,10 +46,28 @@ docker compose -f deploy/server/docker-compose.yml down      # 停止，保留�
 - Redis 数据：卷 `redis-data`
 - 知识库文件：卷 `backend-files`
 
+使用 `deploy/server/backup.sh` 做逻辑备份（单事务一致性）和文件卷归档：
+
 ```bash
-docker run --rm -v agent-platform_mysql-data:/data -v "$PWD":/backup alpine \
-  tar czf /backup/mysql-$(date +%F).tar.gz -C /data .
+./deploy/server/backup.sh
 ```
+
+默认输出到 `/home/ubuntu/backups/agent-platform/<时间戳>/`，包含：
+
+- `mysql.sql.gz`：`mysqldump --single-transaction --no-tablespaces`
+- `files.tar.gz`：`backend-files` 卷只读归档
+- `checksums.txt`：完整性校验
+- 默认保留 7 天，日志写入 `backup.log`；可用 `BACKUP_ROOT`、`KEEP_DAYS` 覆盖。
+
+定时执行（安装 cron 后添加，注意不要与其它任务同时段）：
+
+```bash
+crontab -e
+17 3 * * * /home/ubuntu/agent-platform/deploy/server/backup.sh >/dev/null 2>&1
+```
+
+恢复演练建议：先建临时库导入 `mysql.sql.gz` 验证表数与行数，再在维护窗口停后端做正式恢复；
+不要使用 `docker compose down -v`，会删除数据卷。
 
 ## 回滚
 

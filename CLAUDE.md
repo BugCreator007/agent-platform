@@ -62,7 +62,7 @@ agent-platform/
 │   ├── k8s/                                  TKE/K8s Deployment、Service、Ingress、HPA、Secret
 │   └── server/                               单台腾讯云 CVM 部署脚本与 Compose
 ├── scripts/run-backend.sh                    本地打包并后台启动后端
-├── docs/                                     实现状态、技术文档、演示包
+├── docs/                                     实现状态、backlog、技术文档、演示包
 ├── .claude/skills/                           项目级 Claude Code skills（21 个）
 ├── CLAUDE.md                                 本文件：开发入口与硬性约定
 ├── README.md
@@ -202,6 +202,7 @@ docker compose -f deploy/docker-compose.yml up -d
 
 - [README.md](README.md)
 - [实现状态](docs/implementation-status.md)
+- [未完成事项](docs/backlog.md)
 - [部署说明](deploy/README.md)
 - [技能索引](.claude/skills/README.md)
 

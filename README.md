@@ -138,6 +138,7 @@ npm run build
 ## 目录说明
 
 - `docs/implementation-status.md`：实现状态与剩余边界。
+- `docs/backlog.md`：未完成事项与生产化 backlog（按 P0/P1/P2 分级）。
 - `.claude/skills/README.md`：21 个项目级 Claude Code 开发 skills 索引。
 - `deploy/README.md`：腾讯云 TKE/中间件部署说明。
 - `deploy/docker-compose.yml`：本地 MySQL、Redis、Milvus、Elasticsearch 与前后端。
