@@ -43,6 +43,8 @@ public class ChatSessionEntity {
     private String topic;
     /** 执行链路步骤，以 JSON 存储。 */
     @TableField(value = "trace_json", typeHandler = TraceStepListTypeHandler.class) private List<TraceStep> trace;
+    /** 会话创建人登录名；历史会话为空，用于反馈鉴权与后续用户隔离。 */
+    @TableField(value = "created_by") private String createdBy;
     /** 创建时间；由数据库默认值写入，应用侧只读。 */
     @TableField(value = "created_at", insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER) private Instant createdAt;
 
@@ -56,7 +58,7 @@ public class ChatSessionEntity {
         ChatSessionEntity e = new ChatSessionEntity();
         e.id = s.id(); e.agentId = s.agentId(); e.agentName = s.agentName(); e.status = s.status();
         e.turns = s.turns(); e.tools = s.tools(); e.tokens = s.tokens(); e.ms = s.ms(); e.timeLabel = s.time();
-        e.topic = s.topic(); e.trace = s.trace();
+        e.topic = s.topic(); e.trace = s.trace(); e.createdBy = s.createdBy();
         return e;
     }
 
@@ -67,7 +69,7 @@ public class ChatSessionEntity {
      */
     public ChatSession toDomain() {
         return new ChatSession(id, agentId, agentName, status, turns, tools, tokens, ms,
-                timeLabel, topic, trace == null ? List.of() : trace);
+                timeLabel, topic, trace == null ? List.of() : trace, createdBy);
     }
 
     /**

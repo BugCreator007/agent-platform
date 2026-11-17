@@ -1,5 +1,6 @@
 package com.agentplatform.modules.chat.interfaces.rest;
 
+import com.agentplatform.framework.security.CurrentUser;
 import com.agentplatform.modules.chat.application.runtime.AgentRuntimeService;
 import com.agentplatform.modules.chat.application.runtime.RuntimeChatRequest;
 import org.springframework.http.MediaType;
@@ -30,6 +31,6 @@ public class RuntimeController {
      */
     @PostMapping(value = "/sessions:stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody RuntimeChatRequest request) {
-        return runtime.stream(request);
+        return runtime.stream(request, CurrentUser.require(), "admin_debug");
     }
 }

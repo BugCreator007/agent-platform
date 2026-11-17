@@ -121,6 +121,8 @@ export interface Agent {
   tools: string[]
   kb: string[]
   citationKb: string[]
+  /** 回答模式：HYBRID 混合 / STRICT 严格引用 */
+  answerMode: string
 }
 
 /** 知识库文档引用 */
@@ -426,6 +428,63 @@ export interface AgentSessionStat {
   success: number
   p95: string
   tools: number
+}
+
+/** 反馈原因展示项 */
+export interface FeedbackReason {
+  code: string
+  label: string
+}
+
+/** 管理端反馈明细（问题/回答为提交时快照） */
+export interface FeedbackItem {
+  id: string
+  messageId: string
+  sessionId: string
+  agentId: string
+  agentName: string
+  userId: string
+  rating: 'UP' | 'DOWN'
+  reasons: FeedbackReason[]
+  comment: string | null
+  followUpRequested: boolean
+  questionPreview: string
+  answerPreview: string
+  createdAt: string
+  handleStatus: 'OPEN' | 'HANDLED' | 'IGNORED' | string
+}
+
+/** 管理端反馈分页结果 */
+export interface FeedbackPage {
+  items: FeedbackItem[]
+  page: number
+  size: number
+  total: number
+}
+
+/** 埋点事件统计：事件名到数量 */
+export interface EventStats {
+  days: number
+  from: string
+  to: string
+  counts: Record<string, number>
+}
+
+/** 反馈质量汇总：比率均为 0–1 */
+export interface FeedbackStats {
+  agentId: string | null
+  days: number
+  total: number
+  up: number
+  down: number
+  feedbackMessages: number
+  assistantMessages: number
+  refusals: number
+  followUp: number
+  feedbackRate: number
+  positiveRate: number
+  refusalRate: number
+  reasons: Array<{ code: string; label: string; count: number }>
 }
 
 /** 运营概览页数据：KPI、实时脉搏、趋势序列与快照 */

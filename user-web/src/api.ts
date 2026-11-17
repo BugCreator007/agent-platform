@@ -45,6 +45,52 @@ export interface BackendMessage {
   contextCount: number
   createdAt: string
   citations?: Citation[]
+  /** 助手消息类型：ANSWER 正常回答 / REFUSAL 严格模式拒答 */
+  answerType?: 'ANSWER' | 'REFUSAL' | string
+  /** 是否低置信：绑定知识库但本轮未检索到资料 */
+  lowConfidence?: boolean
+}
+
+/** 反馈原因展示项 */
+export interface FeedbackReason {
+  code: string
+  label: string
+}
+
+/** 当前用户对一条回答的反馈 */
+export interface Feedback {
+  id: string
+  messageId: string
+  rating: 'UP' | 'DOWN'
+  reasons: FeedbackReason[]
+  comment: string | null
+  followUpRequested: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** 提交反馈的请求体 */
+export interface FeedbackInput {
+  rating: 'UP' | 'DOWN'
+  reasons?: string[]
+  comment?: string
+  followUpRequested?: boolean
+}
+
+/** 客户端埋点事件入参 */
+export interface TrackEventInput {
+  name: 'agent_opened' | 'answer_copied' | 'citation_downloaded'
+  eventId?: string
+  sessionId?: string
+  messageId?: string
+  agentId?: string
+  properties?: Record<string, string | number | boolean>
+}
+
+/** 生成事件 ID：优先 crypto.randomUUID，旧环境回退时间戳 + 随机串 */
+function eventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
 /** 后端统一响应包 */
@@ -101,7 +147,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data
 }
 
-/** 用户端接口集合：登录、智能体目录、会话历史 */
+/** 用户端接口集合：登录、智能体目录、会话历史与消息反馈 */
 export const api = {
   login: (username: string, password: string) =>
     request<{ accessToken: string; user: UserInfo }>('/auth/login', {
@@ -109,7 +155,22 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   agents: () => request<UserAgent[]>('/user/agents'),
-  messages: (sessionId: string) => request<BackendMessage[]>(`/sessions/${sessionId}/messages`),
+  messages: (sessionId: string) => request<BackendMessage[]>(`/user/sessions/${sessionId}/messages`),
+  submitFeedback: (messageId: string, body: FeedbackInput) =>
+    request<Feedback>(`/user/messages/${messageId}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteFeedback: (messageId: string) =>
+    request<void>(`/user/messages/${messageId}/feedback`, { method: 'DELETE' }),
+  sessionFeedback: (sessionId: string) =>
+    request<Feedback[]>(`/user/sessions/${sessionId}/feedback`),
+  /** 上报客户端事件；失败由调用方静默处理，不影响主流程 */
+  trackEvent: (input: TrackEventInput) =>
+    request<void>('/user/events', {
+      method: 'POST',
+      body: JSON.stringify({ ...input, eventId: input.eventId ?? eventId() }),
+    }),
 }
 
 /** SSE 工具事件：调用开始或返回时携带的信息 */

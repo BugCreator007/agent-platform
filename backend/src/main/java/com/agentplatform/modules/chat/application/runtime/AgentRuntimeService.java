@@ -1,9 +1,14 @@
 package com.agentplatform.modules.chat.application.runtime;
 
+import com.agentplatform.common.error.BusinessException;
+import com.agentplatform.common.error.ErrorCode;
+import com.agentplatform.common.security.UserContext;
 import com.agentplatform.modules.agent.application.query.AgentSummary;
 import com.agentplatform.modules.agent.application.service.AgentApplicationService;
+import com.agentplatform.modules.chat.application.service.SessionAccessPolicy;
 import com.agentplatform.modules.chat.domain.model.ChatSession;
 import com.agentplatform.modules.chat.domain.model.MessageCitation;
+import com.agentplatform.modules.chat.domain.model.RetrievalDiagnostics;
 import com.agentplatform.modules.chat.domain.model.SessionMessage;
 import com.agentplatform.modules.chat.domain.model.TraceStep;
 import com.agentplatform.modules.chat.domain.repository.SessionMessageRepository;
@@ -12,6 +17,7 @@ import com.agentplatform.modules.chat.infrastructure.ai.AiMessage;
 import com.agentplatform.modules.chat.infrastructure.ai.ChatChunk;
 import com.agentplatform.modules.chat.infrastructure.ai.ModelGateway;
 import com.agentplatform.modules.chat.infrastructure.ai.ToolCall;
+import com.agentplatform.modules.insight.application.service.ProductEventRecorder;
 import com.agentplatform.modules.tool.application.query.McpCallOutcome;
 import com.agentplatform.modules.tool.application.query.McpToolBinding;
 import com.agentplatform.modules.tool.application.service.McpRuntimeService;
@@ -32,10 +38,12 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.LinkedHashMap;
@@ -61,6 +69,9 @@ import java.time.Duration;
 @Service
 public class AgentRuntimeService {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
+    /** 严格引用模式无命中时的固定拒答文案；KQ-1 v1 不开放按智能体编辑。 */
+    private static final String STRICT_REFUSAL_TEXT =
+            "我在已授权的知识库里没有找到能回答这个问题的内容。你可以换一种问法，或把问题留下，知识运营会补充相关资料。";
     private final AgentApplicationService agents;
     private final SessionRepository sessions;
     private final SessionMessageRepository messages;
@@ -69,13 +80,15 @@ public class AgentRuntimeService {
     private final ToolExecutionService tools;
     private final McpRuntimeService mcp;
     private final ObjectMapper objectMapper;
+    private final ProductEventRecorder events;
     private final MeterRegistry meters;
 
     public AgentRuntimeService(AgentApplicationService agents, SessionRepository sessions,
                                SessionMessageRepository messages, ModelGateway model,
                                KnowledgeApplicationService knowledge,
                                ToolExecutionService tools, McpRuntimeService mcp,
-                               ObjectMapper objectMapper, MeterRegistry meters) {
+                               ObjectMapper objectMapper, ProductEventRecorder events,
+                               MeterRegistry meters) {
         this.agents = agents;
         this.sessions = sessions;
         this.messages = messages;
@@ -84,6 +97,7 @@ public class AgentRuntimeService {
         this.tools = tools;
         this.mcp = mcp;
         this.objectMapper = objectMapper;
+        this.events = events;
         this.meters = meters;
     }
 
@@ -99,6 +113,44 @@ public class AgentRuntimeService {
      * @throws RuntimeException 智能体不存在等业务异常由 {@code AgentApplicationService} 抛出
      */
     public SseEmitter stream(RuntimeChatRequest request) {
+        return stream(request, UserContext.anonymous(), "internal");
+    }
+
+    /**
+     * 兼容按登录名调用的旧入口；内部调用没有角色，只能访问本人会话。
+     *
+     * @param request  运行时请求
+     * @param ownerKey 发起人登录名
+     * @return SSE 发射器
+     */
+    public SseEmitter stream(RuntimeChatRequest request, String ownerKey) {
+        return stream(request, new UserContext(ownerKey, null, null, List.of()), "internal");
+    }
+
+    /**
+     * 以用户端身份发起一次流式对话。
+     *
+     * @param request 运行时请求
+     * @param user    当前用户上下文
+     * @return SSE 发射器
+     */
+    public SseEmitter stream(RuntimeChatRequest request, UserContext user) {
+        return stream(request, user, "user_portal");
+    }
+
+    /**
+     * 启动一次流式对话，并记录会话归属。
+     *
+     * <p>续聊前必须校验会话归属：本人或管理员/开发者可继续，
+     * 历史无主会话仅管理员/开发者可续聊；非本人会话统一按不存在处理。</p>
+     *
+     * @param request 运行时请求
+     * @param user    当前用户；为空时按匿名内部调用处理
+     * @param source  调用来源（user_portal / admin_debug / internal），用于埋点
+     * @return SSE 发射器
+     */
+    public SseEmitter stream(RuntimeChatRequest request, UserContext user, String source) {
+        UserContext current = user == null ? UserContext.anonymous() : user;
         AgentSummary agent = agents.get(request.agentId());
         // 未指定会话 ID 时生成新会话，保证前端可以持续续聊同一会话。
         String sessionId = request.sessionId() == null || request.sessionId().isBlank()
@@ -110,10 +162,15 @@ public class AgentRuntimeService {
         StringBuilder answer = new StringBuilder();
         AtomicLong tokens = new AtomicLong();
         ChatSession existingSession = sessions.findById(sessionId).orElse(null);
+        // 续聊必须校验归属：非本人、且不是管理员/开发者，统一按不存在处理，避免会话劫持。
+        if (existingSession != null && !SessionAccessPolicy.canResume(current, existingSession)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "会话不存在");
+        }
         // 新会话先落一条 running 记录，前端刷新时即可看到进行中的会话。
         if (existingSession == null) {
             sessions.save(new ChatSession(sessionId, agent.id(), agent.name(), "running", 0, 0, 0,
-                    0, LocalTime.now().format(TIME), request.message(), List.of()));
+                    0, LocalTime.now().format(TIME), request.message(), List.of(), current.ownerKey()));
+            events.sessionStarted(current.ownerKey(), sessionId, agent.id(), source);
         }
         List<AiMessage> history = new ArrayList<>();
         List<SessionMessage> previous = messages.findBySession(sessionId);
@@ -128,17 +185,25 @@ public class AgentRuntimeService {
         }
         history.add(new AiMessage("user", request.message()));
         // 用户消息先于模型调用落库，即使后续模型失败也能保留提问记录。
-        messages.save(new SessionMessage("msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12),
+        String userMessageId = "msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        messages.save(new SessionMessage(userMessageId,
                 sessionId, "user", request.message(), 0, null, 0, java.time.Instant.now()));
+        events.messageSent(current.ownerKey(), sessionId, agent.id(), userMessageId,
+                previous.size() / 2 + 1, request.message().length());
 
         List<RetrievalHit> contexts = new ArrayList<>();
         List<MessageCitation> citations = new ArrayList<>();
         Set<String> citationKb = new HashSet<>(agent.citationKb() == null ? List.of() : agent.citationKb());
         Set<String> citedDocumentIds = new HashSet<>();
+        Set<String> retrievalModes = new LinkedHashSet<>();
+        double topScore = 0;
         for (String kbId : agent.kb()) {
             try {
                 RetrievalResult result = knowledge.retrieve(kbId, request.message());
                 contexts.addAll(result.hits());
+                if (result.mode() != null && !result.mode().isBlank()) retrievalModes.add(result.mode());
+                topScore = Math.max(topScore, result.hits().stream()
+                        .mapToDouble(RetrievalHit::score).max().orElse(0));
                 // 只对智能体开启了“返回文档链接”的知识库收集引用，并按文档去重。
                 if (citationKb.contains(kbId)) {
                     for (RetrievalHit hit : result.hits()) {
@@ -153,13 +218,6 @@ public class AgentRuntimeService {
             } catch (RuntimeException ignored) { } // 单个知识库不可用时降级跳过，不阻断对话。
         }
         final List<MessageCitation> finalCitations = List.copyOf(citations);
-        String toolContext = "";
-        // 本地工具按关键词做轻量预取；这是演示用启发式，失败时同样静默降级。
-        if (agent.tools().contains("order.query")
-                && (request.message().contains("订单") || request.message().contains("退款"))) {
-            try { toolContext = tools.execute("order.query", request.message()); } catch (RuntimeException ignored) { }
-        }
-        String systemPrompt = buildSystemPrompt(agent, contexts, toolContext);
         List<ModelRoute> routes = model.routes(agent.providerId(), agent.modelId());
         // 路由列表首项为主路由；没有可用路由时退化为智能体自身配置的模型名。
         String resolvedModel = routes.isEmpty()
@@ -169,6 +227,52 @@ public class AgentRuntimeService {
         String routeLabel = model.routeLabel(routes);
         // 无可用密钥时网关会返回本地演示文本，这里标记给前端展示 mock 状态。
         boolean mock = !model.configured(routes);
+        // 低置信：绑定了知识库但本轮没有命中任何资料，前端据此提示“回答可能不准确”。
+        boolean hasKb = !agent.kb().isEmpty();
+        boolean lowConfidence = hasKb && contexts.isEmpty();
+        // 检索诊断：记录命中数、最高分、实际模式与是否 0 命中，供复盘与缺口分析。
+        RetrievalDiagnostics diagnostics = new RetrievalDiagnostics(contexts.size(), topScore,
+                retrievalModes.isEmpty() ? null : String.join("+", retrievalModes),
+                hasKb && contexts.isEmpty());
+        boolean strict = "STRICT".equalsIgnoreCase(agent.answerMode());
+        // 严格引用模式：知识库无命中时直接拒答，不执行工具、不调用模型，避免编造。
+        if (strict && hasKb && contexts.isEmpty()) {
+            long elapsed = System.currentTimeMillis() - start;
+            String assistantId = "msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            messages.save(new SessionMessage(assistantId, sessionId, "assistant", STRICT_REFUSAL_TEXT,
+                    0, null, 0, java.time.Instant.now(), List.of(), "REFUSAL", false, diagnostics));
+            ChatSession existing = sessions.findById(sessionId).orElse(null);
+            int turns = existing == null ? 1 : existing.turns() + 1;
+            String topic = existing == null || existing.topic() == null || existing.topic().isBlank()
+                    ? request.message() : existing.topic();
+            String owner = existing != null ? existing.createdBy() : current.ownerKey();
+            ChatSession session = new ChatSession(sessionId, agent.id(), agent.name(), "success", turns, 0,
+                    existing == null ? 0 : existing.tokens(), elapsed, LocalTime.now().format(TIME), topic,
+                    List.of(new TraceStep("knowledge", "知识库检索", elapsed, 0, "ok",
+                            "严格模式未检索到资料，直接拒答，未调用模型")), owner);
+            sessions.save(session);
+            meters.counter("agent_runtime_refusals_total", "agent", agent.name()).increment();
+            events.answerCompleted(current.ownerKey(), sessionId, agent.id(), assistantId, "REFUSAL",
+                    elapsed, 0, resolvedModel, mock, 0, 0, diagnostics.hitCount(),
+                    diagnostics.topScore(), diagnostics.mode(), diagnostics.noHit());
+            try {
+                emitter.send(SseEmitter.event().name("meta").data(
+                        meta(sessionId, agent, routes, resolvedModel, 0, 0)));
+                Map<String, Object> done = donePayload(sessionId, agent, routes, resolvedModel, 0, 0,
+                        session.tokens(), elapsed, mock, List.of(), assistantId, "REFUSAL", false,
+                        diagnostics, STRICT_REFUSAL_TEXT);
+                emitter.send(SseEmitter.event().name("done").data(done));
+                emitter.complete();
+            } catch (IOException e) { emitter.completeWithError(e); }
+            return emitter;
+        }
+        String toolContext = "";
+        // 本地工具按关键词做轻量预取；这是演示用启发式，失败时同样静默降级。
+        if (agent.tools().contains("order.query")
+                && (request.message().contains("订单") || request.message().contains("退款"))) {
+            try { toolContext = tools.execute("order.query", request.message()); } catch (RuntimeException ignored) { }
+        }
+        String systemPrompt = buildSystemPrompt(agent, contexts, toolContext, strict);
         List<McpToolBinding> mcpBindings;
         try { mcpBindings = mcp.bindings(agent.tools()); } catch (RuntimeException e) { mcpBindings = List.of(); }
         if (!mcpBindings.isEmpty()) {
@@ -181,12 +285,29 @@ public class AgentRuntimeService {
                 return emitter;
             }
             final List<McpToolBinding> bindings = List.copyOf(mcpBindings);
+            AtomicBoolean finished = new AtomicBoolean(false);
             CompletableFuture.runAsync(() -> runMcpLoop(emitter, agent, request, sessionId, start,
                     contexts.size(), systemPrompt, resolvedModel, resolvedProvider, routeLabel, history, bindings,
-                    routes, finalCitations));
+                    routes, finalCitations, lowConfidence, current.ownerKey(), diagnostics, finished));
+            emitter.onCompletion(() -> {
+                if (!finished.getAndSet(true)) {
+                    events.answerFailed(current.ownerKey(), sessionId, agent.id(), "disconnect");
+                }
+            });
+            emitter.onError(error -> {
+                if (!finished.getAndSet(true)) {
+                    events.answerFailed(current.ownerKey(), sessionId, agent.id(), "disconnect");
+                }
+            });
+            emitter.onTimeout(() -> {
+                finished.set(true);
+                events.answerFailed(current.ownerKey(), sessionId, agent.id(), "timeout");
+                emitter.complete();
+            });
             return emitter;
         }
         // 无工具分支：订阅模型文本流，逐片段转发为 SSE delta。
+        AtomicBoolean finished = new AtomicBoolean(false);
         Disposable disposable = model.stream(routes, systemPrompt, history).subscribe(
                 delta -> {
                     answer.append(delta);
@@ -196,7 +317,9 @@ public class AgentRuntimeService {
                     catch (IOException e) { emitter.completeWithError(e); }
                 },
                 error -> {
+                    finished.set(true);
                     meters.counter("agent_runtime_errors_total", "agent", agent.name()).increment();
+                    events.answerFailed(current.ownerKey(), sessionId, agent.id(), "model");
                     try {
                         emitter.send(SseEmitter.event().name("error").data(Map.of("message",
                                 error.getMessage() == null ? "模型调用失败" : error.getMessage())));
@@ -212,29 +335,51 @@ public class AgentRuntimeService {
                     int totalTokens = (existing == null ? 0 : existing.tokens()) + newTokens;
                     String topic = existing == null || existing.topic() == null || existing.topic().isBlank()
                             ? request.message() : existing.topic();
-                    messages.save(new SessionMessage("msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12),
+                    String assistantMessageId = "msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+                    messages.save(new SessionMessage(assistantMessageId,
                             sessionId, "assistant", answer.toString(), newTokens, resolvedModel, contexts.size(),
-                            java.time.Instant.now(), finalCitations));
+                            java.time.Instant.now(), finalCitations, "ANSWER", lowConfidence, diagnostics));
                     ChatSession session = new ChatSession(sessionId, agent.id(), agent.name(), "success",
                             turns, 0, totalTokens, elapsed, LocalTime.now().format(TIME), topic,
                             List.of(new TraceStep("model", "模型流式生成", elapsed,
-                                    newTokens, "ok", "路由：" + routeLabel + " · 上下文 " + contexts.size() + " 条")));
+                                    newTokens, "ok", "路由：" + routeLabel + " · 上下文 " + contexts.size() + " 条")),
+                            existing == null ? current.ownerKey() : existing.createdBy());
                     sessions.save(session);
                     meters.timer("agent_runtime_duration", "agent", agent.name())
                             .record(elapsed, java.util.concurrent.TimeUnit.MILLISECONDS);
+                    // 客户端已断连/超时时 onCompletion 会先置位，此时只落库不重复记完成事件。
+                    if (!finished.getAndSet(true)) {
+                        events.answerCompleted(current.ownerKey(), sessionId, agent.id(), assistantMessageId,
+                                "ANSWER", elapsed, newTokens, resolvedModel, mock, finalCitations.size(), 0,
+                                diagnostics.hitCount(), diagnostics.topScore(), diagnostics.mode(),
+                                diagnostics.noHit());
+                    }
                     try {
-                        Map<String, Object> done = meta(sessionId, agent, routes, resolvedModel, contexts.size(), 0);
-                        done.put("tokens", session.tokens());
-                        done.put("ms", elapsed);
-                        done.put("mock", mock);
-                        done.put("citations", finalCitations);
+                        Map<String, Object> done = donePayload(sessionId, agent, routes, resolvedModel,
+                                contexts.size(), 0, session.tokens(), elapsed, mock, finalCitations,
+                                assistantMessageId, "ANSWER", lowConfidence, diagnostics, null);
                         emitter.send(SseEmitter.event().name("done").data(done));
                         emitter.complete();
                     } catch (IOException e) { emitter.completeWithError(e); }
                 });
-        // 客户端完成或超时后都释放上游模型订阅，防止连接泄漏与无谓的 token 消耗。
-        emitter.onCompletion(disposable::dispose);
-        emitter.onTimeout(() -> { disposable.dispose(); emitter.complete(); });
+        // 客户端完成或超时后都释放上游模型订阅；未收到 done 就断开时补记失败事件。
+        emitter.onCompletion(() -> {
+            if (!finished.getAndSet(true)) {
+                events.answerFailed(current.ownerKey(), sessionId, agent.id(), "disconnect");
+            }
+            disposable.dispose();
+        });
+        emitter.onError(error -> {
+            if (!finished.getAndSet(true)) {
+                events.answerFailed(current.ownerKey(), sessionId, agent.id(), "disconnect");
+            }
+        });
+        emitter.onTimeout(() -> {
+            finished.set(true);
+            events.answerFailed(current.ownerKey(), sessionId, agent.id(), "timeout");
+            disposable.dispose();
+            emitter.complete();
+        });
         try {
             emitter.send(SseEmitter.event().name("meta").data(
                     meta(sessionId, agent, routes, resolvedModel, contexts.size(), 0)));
@@ -262,12 +407,19 @@ public class AgentRuntimeService {
      * @param history          会话历史消息（含本轮用户消息）
      * @param bindings         智能体可用的 MCP 工具映射
      * @param routes           模型路由候选列表
+     * @param citations        引用列表
+     * @param lowConfidence    是否低置信
+     * @param fallbackOwner    会话不存在时的兜底归属人
+     * @param diagnostics      检索诊断快照
+     * @param finished         是否已正常完成或失败；用于断连补记失败事件
      */
     private void runMcpLoop(SseEmitter emitter, AgentSummary agent, RuntimeChatRequest request,
                             String sessionId, long start, int contextCount, String systemPrompt,
                             String resolvedModel, String resolvedProvider, String routeLabel,
                             List<AiMessage> history, List<McpToolBinding> bindings, List<ModelRoute> routes,
-                            List<MessageCitation> citations) {
+                            List<MessageCitation> citations, boolean lowConfidence,
+                            String fallbackOwner, RetrievalDiagnostics diagnostics,
+                            AtomicBoolean finished) {
         StringBuilder answer = new StringBuilder();
         AtomicLong tokens = new AtomicLong();
         List<AiMessage> chat = new ArrayList<>(history);
@@ -320,19 +472,29 @@ public class AgentRuntimeService {
                 }
             }
             int newTokens = (int) Math.max(1, tokens.get());
-            saveCompletedSession(agent, request, sessionId, start, contextCount, resolvedModel, resolvedProvider,
-                    routeLabel, answer.toString(), newTokens, "MCP 工具链 · " + bindings.size() + " 个工具", citations);
+            String assistantMessageId = saveCompletedSession(agent, request, sessionId, start, contextCount,
+                    resolvedModel, resolvedProvider, routeLabel, answer.toString(), newTokens,
+                    "MCP 工具链 · " + bindings.size() + " 个工具", citations, lowConfidence,
+                    fallbackOwner, diagnostics);
+            // 客户端已断连/超时时 onCompletion 会先置位，此时只落库不重复记完成事件。
+            if (!finished.getAndSet(true)) {
+                events.answerCompleted(fallbackOwner, sessionId, agent.id(), assistantMessageId, "ANSWER",
+                        System.currentTimeMillis() - start, newTokens, resolvedModel, !model.configured(routes),
+                        citations.size(), bindings.size(), diagnostics.hitCount(), diagnostics.topScore(),
+                        diagnostics.mode(), diagnostics.noHit());
+            }
             try {
-                Map<String, Object> done = meta(sessionId, agent, routes, resolvedModel, contextCount, bindings.size());
-                done.put("tokens", newTokens);
-                done.put("ms", System.currentTimeMillis() - start);
-                done.put("mock", !model.configured(routes));
-                done.put("citations", citations);
+                Map<String, Object> done = donePayload(sessionId, agent, routes, resolvedModel, contextCount,
+                        bindings.size(), newTokens, System.currentTimeMillis() - start,
+                        !model.configured(routes), citations, assistantMessageId, "ANSWER",
+                        lowConfidence, diagnostics, null);
                 emitter.send(SseEmitter.event().name("done").data(done));
                 emitter.complete();
             } catch (IOException e) { emitter.completeWithError(e); }
         } catch (Exception e) {
+            finished.set(true);
             meters.counter("agent_runtime_errors_total", "agent", agent.name()).increment();
+            events.answerFailed(fallbackOwner, sessionId, agent.id(), "tool");
             try {
                 emitter.send(SseEmitter.event().name("error").data(Map.of(
                         "message", e.getMessage() == null ? "MCP 工具调用失败" : e.getMessage())));
@@ -419,26 +581,32 @@ public class AgentRuntimeService {
      * @param answer           完整助手回答
      * @param newTokens        本轮 token 估算值
      * @param detail           trace 明细说明
+     * @param fallbackOwner    会话不存在时的兜底归属人，避免匿名写入无主会话
+     * @param diagnostics      检索诊断快照
      */
-    private void saveCompletedSession(AgentSummary agent, RuntimeChatRequest request, String sessionId,
-                                      long start, int contextCount, String resolvedModel, String resolvedProvider,
-                                      String routeLabel, String answer, int newTokens, String detail,
-                                      List<MessageCitation> citations) {
+    private String saveCompletedSession(AgentSummary agent, RuntimeChatRequest request, String sessionId,
+                                        long start, int contextCount, String resolvedModel, String resolvedProvider,
+                                        String routeLabel, String answer, int newTokens, String detail,
+                                        List<MessageCitation> citations, boolean lowConfidence,
+                                        String fallbackOwner, RetrievalDiagnostics diagnostics) {
         ChatSession existing = sessions.findById(sessionId).orElse(null);
         int turns = existing == null ? 1 : existing.turns() + 1;
         int totalTokens = (existing == null ? 0 : existing.tokens()) + newTokens;
         String topic = existing == null || existing.topic() == null || existing.topic().isBlank()
                 ? request.message() : existing.topic();
-        messages.save(new SessionMessage("msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12),
+        String assistantMessageId = "msg_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        messages.save(new SessionMessage(assistantMessageId,
                 sessionId, "assistant", answer, newTokens, resolvedModel, contextCount,
-                java.time.Instant.now(), citations));
+                java.time.Instant.now(), citations, "ANSWER", lowConfidence, diagnostics));
         long elapsed = System.currentTimeMillis() - start;
         sessions.save(new ChatSession(sessionId, agent.id(), agent.name(), "success", turns, 0, totalTokens,
                 elapsed, LocalTime.now().format(TIME), topic,
                 List.of(new TraceStep("model", "模型 + MCP 工具链", elapsed, newTokens, "ok",
-                        "路由：" + routeLabel + " · 提供方：" + resolvedProvider + " · 模型：" + resolvedModel + " · " + detail))));
+                        "路由：" + routeLabel + " · 提供方：" + resolvedProvider + " · 模型：" + resolvedModel + " · " + detail)),
+                existing == null ? fallbackOwner : existing.createdBy()));
         meters.timer("agent_runtime_duration", "agent", agent.name())
                 .record(elapsed, java.util.concurrent.TimeUnit.MILLISECONDS);
+        return assistantMessageId;
     }
 
     /**
@@ -474,6 +642,44 @@ public class AgentRuntimeService {
     }
 
     /**
+     * 构造 SSE done 事件数据，统一普通、MCP 与拒答三条分支的契约。
+     *
+     * @param sessionId          会话 ID
+     * @param agent              当前智能体
+     * @param routes             模型路由候选
+     * @param resolvedModel      实际模型名
+     * @param contextCount       上下文条数
+     * @param toolCount          工具调用数
+     * @param tokens             token 数
+     * @param elapsed            耗时
+     * @param mock               是否演示流
+     * @param citations          引用列表
+     * @param assistantMessageId 助手消息 ID
+     * @param answerType         ANSWER / REFUSAL
+     * @param lowConfidence      是否低置信
+     * @param retrieval          检索诊断
+     * @param content            拒答文案；普通回答为 null
+     * @return done 事件数据
+     */
+    Map<String, Object> donePayload(String sessionId, AgentSummary agent, List<ModelRoute> routes,
+                                    String resolvedModel, int contextCount, int toolCount, int tokens,
+                                    long elapsed, boolean mock, List<MessageCitation> citations,
+                                    String assistantMessageId, String answerType, boolean lowConfidence,
+                                    RetrievalDiagnostics retrieval, String content) {
+        Map<String, Object> done = meta(sessionId, agent, routes, resolvedModel, contextCount, toolCount);
+        done.put("tokens", tokens);
+        done.put("ms", elapsed);
+        done.put("mock", mock);
+        done.put("citations", citations);
+        done.put("assistantMessageId", assistantMessageId);
+        done.put("answerType", answerType);
+        done.put("lowConfidence", lowConfidence);
+        if (retrieval != null) done.put("retrieval", retrieval);
+        if (content != null) done.put("content", content);
+        return done;
+    }
+
+    /**
      * 拼装系统提示词：智能体基础提示词 + 可用工具/知识库说明 + 预取工具结果 + RAG 上下文。
      *
      * <p>RAG 片段带序号与来源，便于模型在回答中标注出处；末尾统一追加中文回答与
@@ -482,9 +688,11 @@ public class AgentRuntimeService {
      * @param agent       当前智能体
      * @param contexts    RAG 检索命中的上下文
      * @param toolContext 本地工具预取结果；为空表示未调用工具
+     * @param strict      是否严格引用模式；为 true 时追加“仅依据资料、不得编造”的约束
      * @return 完整系统提示词
      */
-    private String buildSystemPrompt(AgentSummary agent, List<RetrievalHit> contexts, String toolContext) {
+    private String buildSystemPrompt(AgentSummary agent, List<RetrievalHit> contexts,
+                                     String toolContext, boolean strict) {
         StringBuilder prompt = new StringBuilder(agent.prompt() == null ? "你是企业的智能助手。" : agent.prompt());
         if (!agent.tools().isEmpty()) {
             prompt.append("\n\n可用工具（需要时在回答中说明调用意图）：").append(String.join("、", agent.tools()));
@@ -502,6 +710,9 @@ public class AgentRuntimeService {
                 prompt.append("[").append(i++).append("] ").append(hit.source())
                         .append(" #").append(hit.chunk()).append("：").append(hit.text()).append("\n");
             }
+        }
+        if (strict) {
+            prompt.append("\n\n严格引用模式：只能依据以上检索到的企业知识回答；资料不足时明确说明不知道，不得使用常识补充，更不得编造。");
         }
         prompt.append("\n\n请用中文回答，给出可执行的下一步。不确定时明确说明，不要编造订单或政策。");
         return prompt.toString();

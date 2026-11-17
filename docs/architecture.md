@@ -21,6 +21,7 @@ com.agentplatform
     ├── release
     ├── eval
     ├── observe
+    ├── insight
     ├── open
     ├── system
     ├── tool

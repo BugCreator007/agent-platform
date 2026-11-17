@@ -3,6 +3,7 @@ package com.agentplatform.modules.portal.interfaces.rest;
 import com.agentplatform.common.api.ApiResponse;
 import com.agentplatform.common.error.BusinessException;
 import com.agentplatform.common.error.ErrorCode;
+import com.agentplatform.framework.security.CurrentUser;
 import com.agentplatform.modules.agent.application.query.AgentSummary;
 import com.agentplatform.modules.agent.application.service.AgentApplicationService;
 import com.agentplatform.modules.chat.application.runtime.AgentRuntimeService;
@@ -73,6 +74,7 @@ public class UserPortalController {
         if (!USABLE.contains(agent.status())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "该智能体暂未开放");
         }
-        return runtime.stream(request);
+        // 归属与续聊校验由运行时统一完成，用户端不允许匿名或跨用户续聊。
+        return runtime.stream(request, CurrentUser.require());
     }
 }

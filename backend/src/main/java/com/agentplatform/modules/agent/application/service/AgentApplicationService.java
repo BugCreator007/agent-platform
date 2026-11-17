@@ -7,6 +7,8 @@ import com.agentplatform.modules.agent.domain.model.Agent;
 import com.agentplatform.modules.agent.domain.repository.AgentRepository;
 import com.agentplatform.modules.agent.interfaces.dto.CreateAgentRequest;
 import com.agentplatform.modules.agent.interfaces.dto.UpdateAgentRequest;
+import com.agentplatform.modules.knowledge.application.query.DatasetSummary;
+import com.agentplatform.modules.knowledge.application.service.KnowledgeApplicationService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -21,12 +23,15 @@ import java.util.UUID;
 @Service
 public class AgentApplicationService {
     private final AgentRepository repository;
+    private final KnowledgeApplicationService knowledge;
 
     /**
      * @param repository 智能体仓储端口实现
+     * @param knowledge  知识库应用服务，用于校验严格模式绑定的数据集检索类型
      */
-    public AgentApplicationService(AgentRepository repository) {
+    public AgentApplicationService(AgentRepository repository, KnowledgeApplicationService knowledge) {
         this.repository = repository;
+        this.knowledge = knowledge;
     }
 
     /**
@@ -86,8 +91,14 @@ public class AgentApplicationService {
             agent.bindModel(request.providerId(), request.modelId(), request.model());
         }
         // 模型绑定之后再单独应用工具/知识库，避免被 bindModel 的默认行为覆盖
-        agent.update(null, null, null, null, null, request.tools(), request.kb(),
-                request.citationKb() == null ? request.kb() : request.citationKb());
+        String answerMode = normalizeAnswerMode(request.answerMode());
+        if ("STRICT".equals(answerMode) && (request.kb() == null || request.kb().isEmpty())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "严格引用模式需要绑定至少一个知识库");
+        }
+        validateStrictDatasets(answerMode, request.kb());
+        agent.update(null, null, null, null, null, null, null, request.tools(), request.kb(),
+                request.citationKb() == null ? request.kb() : request.citationKb(),
+                answerMode == null ? "HYBRID" : answerMode);
         repository.save(agent);
         return AgentSummary.from(agent);
     }
@@ -102,11 +113,58 @@ public class AgentApplicationService {
      */
     public AgentSummary update(String id, UpdateAgentRequest request) {
         Agent agent = require(id);
+        String answerMode = normalizeAnswerMode(request.answerMode());
+        // 严格模式必须基于知识库：kb 为空且未显式传新 kb 时直接拒绝，避免保存出无法运行的配置
+        List<String> nextKb = request.kb() == null ? agent.kb() : request.kb();
+        if ("STRICT".equals(answerMode) && nextKb.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "严格引用模式需要绑定至少一个知识库");
+        }
+        String effectiveMode = answerMode == null ? agent.answerMode() : answerMode;
+        validateStrictDatasets(effectiveMode, nextKb);
         agent.update(request.name(), request.model(), request.providerId(), request.modelId(),
                 request.owner(), request.team(), request.prompt(), request.tools(), request.kb(),
-                request.citationKb());
+                request.citationKb(), answerMode);
         repository.save(agent);
         return AgentSummary.from(agent);
+    }
+
+    /**
+     * 校验严格引用模式绑定的数据集：纯关键词检索没有相似度阈值，0 命中不可靠，
+     * 因此不允许用于 STRICT，避免拒答形同虚设。
+     *
+     * @param answerMode 归一化后的回答模式
+     * @param kbIds      绑定的知识库 ID 列表
+     * @throws BusinessException 绑定纯关键词数据集或数据集不存在时抛出 400
+     */
+    private void validateStrictDatasets(String answerMode, List<String> kbIds) {
+        if (!"STRICT".equals(answerMode) || kbIds == null || kbIds.isEmpty()) return;
+        List<DatasetSummary> datasets = knowledge.listDatasets();
+        for (String kbId : kbIds) {
+            DatasetSummary dataset = datasets.stream()
+                    .filter(d -> d.id().equals(kbId))
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR,
+                            "知识库不存在: " + kbId));
+            if ("keyword".equalsIgnoreCase(dataset.retrievalMode())) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "严格引用模式不支持纯关键词检索知识库：" + dataset.name());
+            }
+        }
+    }
+
+    /**
+     * 归一化回答模式：空值保持不修改，非法值返回 400。
+     *
+     * @param answerMode 请求中的回答模式
+     * @return null 表示不修改；否则为 HYBRID / STRICT
+     */
+    private String normalizeAnswerMode(String answerMode) {
+        if (answerMode == null || answerMode.isBlank()) return null;
+        String normalized = answerMode.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"HYBRID".equals(normalized) && !"STRICT".equals(normalized)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "回答模式仅支持 HYBRID 或 STRICT");
+        }
+        return normalized;
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.agentplatform.modules.chat.interfaces.rest;
 
 import com.agentplatform.common.api.ApiResponse;
+import com.agentplatform.framework.security.CurrentUser;
 import com.agentplatform.modules.chat.application.query.AgentSessionStat;
 import com.agentplatform.modules.chat.application.query.SessionAnalyticsService;
 import com.agentplatform.modules.chat.application.service.SessionApplicationService;
@@ -16,7 +17,9 @@ import java.util.List;
 /**
  * 会话管理 REST 接口（interfaces 层），供管理后台查询会话、消息与运行指标。
  *
- * <p>读接口返回统一 {@link ApiResponse}；删除接口仅限平台管理员（{@code PLATFORM_ADMIN}）。
+ * <p>读接口按 {@code SessionAccessPolicy} 过滤：管理员/开发者可见全量，
+ * 其他角色只能看到自己创建的会话；非本人会话统一返回 404。
+ * 删除接口仅限平台管理员（{@code PLATFORM_ADMIN}）。
  * 指标统计固定按 Asia/Shanghai 时区计算自然日。</p>
  */
 @RestController
@@ -34,7 +37,7 @@ public class SessionController {
     }
 
     /**
-     * 查询会话列表，支持按状态、智能体与关键字过滤。
+     * 查询当前用户可见的会话列表，支持按状态、智能体与关键字过滤。
      *
      * @param status  会话状态过滤，可为空
      * @param agentId 智能体 ID 过滤，可为空
@@ -46,18 +49,18 @@ public class SessionController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String agentId,
             @RequestParam(required = false, name = "q") String q) {
-        return ApiResponse.ok(applicationService.list(status, agentId, q));
+        return ApiResponse.ok(applicationService.list(CurrentUser.require(), status, agentId, q));
     }
 
     /**
      * 智能体列表/详情使用的真实运行指标，默认统计今天。
-     */
-    /**
-     * 智能体列表/详情使用的真实运行指标，默认统计今天。
+     *
+     * <p>指标覆盖全量智能体，仅对平台管理员/开发者开放，避免 VIEWER 读取管理端运营数据。</p>
      *
      * @param days 统计最近多少天（含今天）；小于等于 0 按 1 天处理，最大 90 天
      * @return 按会话数降序排列的智能体指标列表
      */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('PLATFORM_ADMIN','DEVELOPER')")
     @GetMapping("/stats")
     public ApiResponse<List<AgentSessionStat>> stats(
             @RequestParam(defaultValue = "1") int days) {
@@ -69,15 +72,15 @@ public class SessionController {
     }
 
     /**
-     * 查询会话详情。
+     * 查询当前用户有权访问的会话详情。
      *
      * @param id 会话 ID
      * @return 会话聚合（含 trace）
-     * @throws com.agentplatform.common.error.BusinessException 会话不存在时抛出
+     * @throws com.agentplatform.common.error.BusinessException 会话不存在或无权访问时抛出
      */
     @GetMapping("/{id}")
     public ApiResponse<ChatSession> get(@PathVariable String id) {
-        return ApiResponse.ok(applicationService.get(id));
+        return ApiResponse.ok(applicationService.get(CurrentUser.require(), id));
     }
 
     /**
@@ -90,19 +93,19 @@ public class SessionController {
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('PLATFORM_ADMIN')")
     @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable String id) {
-        applicationService.delete(id);
+        applicationService.delete(id, CurrentUser.require().ownerKey());
         return ApiResponse.ok(null);
     }
 
     /**
-     * 查询会话的消息明细，按创建时间升序。
+     * 查询当前用户有权访问的会话消息明细，按创建时间升序。
      *
      * @param id 会话 ID
      * @return 消息列表
-     * @throws com.agentplatform.common.error.BusinessException 会话不存在时抛出
+     * @throws com.agentplatform.common.error.BusinessException 会话不存在或无权访问时抛出
      */
     @GetMapping("/{id}/messages")
     public ApiResponse<List<SessionMessage>> messages(@PathVariable String id) {
-        return ApiResponse.ok(applicationService.messages(id));
+        return ApiResponse.ok(applicationService.messages(CurrentUser.require(), id));
     }
 }

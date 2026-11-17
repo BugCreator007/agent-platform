@@ -19,6 +19,8 @@ public enum ErrorCode {
     NAME_CONFLICT(409, "名称已存在"),
     /** 当前状态不允许该操作（409） */
     STATE_CONFLICT(409, "当前状态不允许该操作"),
+    /** 请求过于频繁（429） */
+    TOO_MANY_REQUESTS(429, "请求过于频繁，请稍后再试"),
     /** 未预期的内部错误（500） */
     INTERNAL_ERROR(500, "服务内部错误");
 

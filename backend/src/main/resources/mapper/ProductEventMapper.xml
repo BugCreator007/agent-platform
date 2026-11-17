@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 产品事件统计：按事件名聚合，供埋点验收与运营查看 -->
+<mapper namespace="com.agentplatform.modules.insight.infrastructure.persistence.mapper.ProductEventMapper">
+  <select id="countByName" resultType="com.agentplatform.modules.insight.infrastructure.persistence.entity.EventNameCount">
+    select event_name as eventName, count(*) as cnt
+    from product_events
+    where occurred_at &gt;= #{from} and occurred_at &lt; #{to}
+    group by event_name
+    order by cnt desc
+  </select>
+</mapper>

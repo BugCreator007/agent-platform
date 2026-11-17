@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- MessageFeedback 表映射：单表 CRUD 由 MyBatis-Plus BaseMapper 提供，过滤查询在下方维护 -->
+<mapper namespace="com.agentplatform.modules.chat.infrastructure.persistence.mapper.MessageFeedbackMapper">
+  <select id="findFeedback" resultType="com.agentplatform.modules.chat.infrastructure.persistence.entity.MessageFeedbackEntity">
+    select * from message_feedback
+    where created_at &gt;= #{from}
+    <if test="agentId != null and agentId != ''">
+      and agent_id = #{agentId}
+    </if>
+    <if test="rating != null and rating != ''">
+      and rating = #{rating}
+    </if>
+    order by created_at desc
+  </select>
+
+  <!-- 分页查询：原因使用 ,CODE, 检索列，避免 JSON 函数在不同数据库方言下的差异 -->
+  <select id="findFeedbackPage" resultType="com.agentplatform.modules.chat.infrastructure.persistence.entity.MessageFeedbackEntity">
+    select * from message_feedback
+    where created_at &gt;= #{from} and created_at &lt; #{to}
+    <if test="agentId != null and agentId != ''">
+      and agent_id = #{agentId}
+    </if>
+    <if test="rating != null and rating != ''">
+      and rating = #{rating}
+    </if>
+    <if test="reasonCode != null and reasonCode != ''">
+      and reasons_csv like concat('%,', #{reasonCode}, ',%')
+    </if>
+    order by created_at desc
+    limit #{size} offset #{offset}
+  </select>
+
+  <!-- 分页总数：与 findFeedbackPage 保持同一过滤条件 -->
+  <select id="countFeedback" resultType="long">
+    select count(*) from message_feedback
+    where created_at &gt;= #{from} and created_at &lt; #{to}
+    <if test="agentId != null and agentId != ''">
+      and agent_id = #{agentId}
+    </if>
+    <if test="rating != null and rating != ''">
+      and rating = #{rating}
+    </if>
+    <if test="reasonCode != null and reasonCode != ''">
+      and reasons_csv like concat('%,', #{reasonCode}, ',%')
+    </if>
+  </select>
+</mapper>

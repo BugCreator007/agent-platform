@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 import com.agentplatform.modules.chat.domain.model.MessageCitation;
+import com.agentplatform.modules.chat.domain.model.RetrievalDiagnostics;
 import com.agentplatform.modules.chat.domain.model.SessionMessage;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +42,12 @@ public class SessionMessageEntity {
     @TableField(value = "created_at") private Instant createdAt;
     /** 知识库引用 JSON；历史数据为空。 */
     @TableField(value = "citations_json") private String citationsJson;
+    /** 助手消息类型：ANSWER / REFUSAL；用户消息默认 ANSWER。 */
+    @TableField(value = "answer_type") private String answerType;
+    /** 低置信标记：绑定知识库但本轮 0 命中时为 true。 */
+    @TableField(value = "low_confidence") private boolean lowConfidence;
+    /** 检索诊断 JSON：命中数、最高分、模式、是否 0 命中。 */
+    @TableField(value = "retrieval_json") private String retrievalJson;
 
     /**
      * 领域模型转持久化实体；创建时间为空时补当前时间。
@@ -53,9 +60,13 @@ public class SessionMessageEntity {
         e.id=m.id(); e.sessionId=m.sessionId(); e.role=m.role(); e.content=m.content();
         e.tokens=m.tokens(); e.model=m.model(); e.contextCount=m.contextCount();
         e.createdAt=m.createdAt() == null ? Instant.now() : m.createdAt();
+        e.answerType=m.answerType() == null ? "ANSWER" : m.answerType();
+        e.lowConfidence=m.lowConfidence();
         try { e.citationsJson = m.citations() == null || m.citations().isEmpty()
                 ? null : MAPPER.writeValueAsString(m.citations()); }
         catch (Exception ignored) { e.citationsJson = null; }
+        try { e.retrievalJson = m.retrieval() == null ? null : MAPPER.writeValueAsString(m.retrieval()); }
+        catch (Exception ignored) { e.retrievalJson = null; }
         return e;
     }
     /**
@@ -68,6 +79,11 @@ public class SessionMessageEntity {
         try { citations = citationsJson == null || citationsJson.isBlank() ? List.of()
                 : MAPPER.readValue(citationsJson, new TypeReference<>() {}); }
         catch (Exception ignored) { citations = List.of(); }
-        return new SessionMessage(id, sessionId, role, content, tokens, model, contextCount, createdAt, citations);
+        RetrievalDiagnostics retrieval = null;
+        try { if (retrievalJson != null && !retrievalJson.isBlank()) {
+                retrieval = MAPPER.readValue(retrievalJson, RetrievalDiagnostics.class); } }
+        catch (Exception ignored) { retrieval = null; }
+        return new SessionMessage(id, sessionId, role, content, tokens, model, contextCount, createdAt, citations,
+                answerType == null ? "ANSWER" : answerType, lowConfidence, retrieval);
     }
 }
