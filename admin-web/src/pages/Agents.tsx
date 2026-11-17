@@ -49,7 +49,7 @@ export function AgentsPage() {
   const [debugAgent, setDebugAgent] = useState<Agent | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Agent | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', owner: '', team: '', providerId: '', modelId: '', model: '', prompt: '', tools: [] as string[], kb: [] as string[], citationKb: [] as string[] })
+  const [editForm, setEditForm] = useState({ name: '', owner: '', team: '', providerId: '', modelId: '', model: '', prompt: '', tools: [] as string[], kb: [] as string[], citationKb: [] as string[], answerMode: 'HYBRID' })
 
   // 基础数据查询：智能体、今日统计（60 秒轮询）、工具、知识库、模型与厂商
   const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.get<Agent[]>('/agents') })
@@ -60,6 +60,8 @@ export function AgentsPage() {
   })
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api.get<Tool[]>('/tools') })
   const datasets = useQuery({ queryKey: ['datasets'], queryFn: () => api.get<Dataset[]>('/datasets') })
+  // 严格引用模式只允许向量/混合检索数据集；纯关键词路没有阈值，拒答会失效
+  const editHasKeywordKb = (datasets.data ?? []).some((d) => editForm.kb.includes(d.id) && d.retrievalMode === 'keyword')
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.get<ModelInfo[]>('/models') })
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api.get<Provider[]>('/providers') })
 
@@ -158,6 +160,7 @@ export function AgentsPage() {
       name: agent.name, owner: agent.owner, team: agent.team,
       providerId: agent.providerId ?? '', modelId: agent.modelId ?? '', model: agent.model,
       prompt: agent.prompt, tools: [...agent.tools], kb: [...agent.kb], citationKb: [...(agent.citationKb ?? [])],
+      answerMode: agent.answerMode ?? 'HYBRID',
     })
   }
 
@@ -272,6 +275,7 @@ export function AgentsPage() {
                         <dt>发布状态</dt><dd>{selected.release}</dd>
                         <dt>更新时间</dt><dd>{selected.updated}</dd>
                         <dt>知识库</dt><dd>{selected.kb.length ? selected.kb.join('、') : '未绑定'}</dd>
+                        <dt>回答模式</dt><dd>{selected.answerMode === 'STRICT' ? '严格引用 · 无资料时拒答' : '混合回答'}</dd>
                       </div>
                     </div>
                   </div>
@@ -366,6 +370,14 @@ export function AgentsPage() {
           setEditForm({ ...editForm, modelId: model?.id ?? '', model: model?.name ?? '' })
         }}><option value="">未绑定</option>{(models.data ?? []).filter((m) => m.providerId === editForm.providerId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
         <div className="field"><label>系统提示词</label><textarea className="input" rows={7} value={editForm.prompt} onChange={(e) => setEditForm({ ...editForm, prompt: e.target.value })} /></div>
+        <div className="field">
+          <label>回答模式</label>
+          <select className="select" value={editForm.answerMode} onChange={(e) => setEditForm({ ...editForm, answerMode: e.target.value })}>
+            <option value="HYBRID">混合回答 · 无资料时仍由模型回答</option>
+            <option value="STRICT" disabled={!editForm.kb.length || editHasKeywordKb}>严格引用 · 无资料时直接拒答</option>
+          </select>
+          <div className="hint">严格模式要求至少绑定一个知识库，且不能包含纯关键词检索数据集；检索不到资料时不调用模型。</div>
+        </div>
         <div className="field"><label>工具</label><div className="row wrap" style={{ gap: 6 }}>{(tools.data ?? []).map((t) => <button key={t.name} className={`chip ${editForm.tools.includes(t.name) ? 'active' : ''}`} onClick={() => setEditForm({ ...editForm, tools: editForm.tools.includes(t.name) ? editForm.tools.filter((x) => x !== t.name) : [...editForm.tools, t.name] })}>{t.name}</button>)}</div></div>
         <div className="field">
           <label>知识库</label>
@@ -376,6 +388,10 @@ export function AgentsPage() {
                 ...editForm,
                 kb: selectedKb ? editForm.kb.filter((x) => x !== d.id) : [...editForm.kb, d.id],
                 citationKb: selectedKb ? editForm.citationKb.filter((x) => x !== d.id) : [...editForm.citationKb, d.id],
+                // 移除最后一个知识库或选入纯关键词数据集时，严格模式不再合法，自动回退混合回答
+                answerMode: (selectedKb && editForm.kb.length === 1 && editForm.answerMode === 'STRICT')
+                  || (!selectedKb && editForm.answerMode === 'STRICT' && d.retrievalMode === 'keyword')
+                  ? 'HYBRID' : editForm.answerMode,
               })}>{d.name}</button>
             })}
           </div>
@@ -568,7 +584,7 @@ function CreateAgentWizard({
     providerId: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.providerId ?? '',
     modelId: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.id ?? '',
     model: (models.find((m) => m.providerId === 'deepseek' && m.name.includes('V4')) ?? models.find((m) => m.providerId === 'deepseek') ?? models[0])?.name ?? '', prompt: '你是企业的智能助手，回答前先核实信息，不承诺系统外的事项。',
-    tools: [] as string[], kb: [] as string[], citationKb: [] as string[],
+    tools: [] as string[], kb: [] as string[], citationKb: [] as string[], answerMode: 'HYBRID',
   })
   /** 创建提交，成功后交给父组件刷新列表并打开详情 */
   const create = useMutation({
@@ -586,13 +602,19 @@ function CreateAgentWizard({
   }, [open, models.length])
 
   const update = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
+  // 严格模式只能绑定向量/混合检索数据集
+  const hasKeywordKb = datasets.some((d) => form.kb.includes(d.id) && d.retrievalMode === 'keyword')
   const toggle = (key: 'tools' | 'kb', value: string) => setForm((f) => {
     const selected = f[key].includes(value)
+    const keyword = key === 'kb' && datasets.find((d) => d.id === value)?.retrievalMode === 'keyword'
     return {
       ...f,
       [key]: selected ? f[key].filter((x) => x !== value) : [...f[key], value],
       // 勾选知识库时默认开启引用返回；取消知识库时同步移除引用配置。
       ...(key === 'kb' ? { citationKb: selected ? f.citationKb.filter((x) => x !== value) : [...f.citationKb, value] } : {}),
+      // 移除最后一个知识库或选入纯关键词数据集时，严格模式不再合法，自动回退混合回答
+      ...(key === 'kb' && f.answerMode === 'STRICT' && ((selected && f.kb.length === 1) || (!selected && keyword))
+        ? { answerMode: 'HYBRID' } : {}),
     }
   })
 
@@ -609,7 +631,7 @@ function CreateAgentWizard({
           <Button onClick={onClose}>取消</Button>
           {step < 2
             ? <Button kind="primary" disabled={step === 0 && (!form.name.trim() || !form.code.trim())} onClick={() => setStep(step + 1)}>下一步</Button>
-            : <Button kind="primary" onClick={() => create.mutate()} disabled={create.isPending}>创建智能体</Button>}
+            : <Button kind="primary" onClick={() => create.mutate()} disabled={create.isPending || (form.answerMode === 'STRICT' && (!form.kb.length || hasKeywordKb))}>创建智能体</Button>}
         </>
       }
     >
@@ -648,6 +670,14 @@ function CreateAgentWizard({
             }}>{models.filter((m) => m.providerId === form.providerId).map((m) => <option key={m.id} value={m.id}>{m.name} · {m.context} 上下文</option>)}</select></div>
             <div className="field"><label>系统提示词</label><textarea className="input" rows={5} value={form.prompt} onChange={(e) => update({ prompt: e.target.value })} /></div>
             <div className="field">
+              <label>回答模式</label>
+              <select className="select" value={form.answerMode} onChange={(e) => update({ answerMode: e.target.value })}>
+                <option value="HYBRID">混合回答 · 无资料时仍由模型回答</option>
+                <option value="STRICT" disabled={!form.kb.length || hasKeywordKb}>严格引用 · 无资料时直接拒答</option>
+              </select>
+              <div className="hint">严格模式要求至少绑定一个知识库，且不能包含纯关键词检索数据集。</div>
+            </div>
+            <div className="field">
               <label>工具</label>
               <div className="row wrap" style={{ gap: 6 }}>
                 {tools.slice(0, 8).map((t) => <button key={t.name} className={`chip ${form.tools.includes(t.name) ? 'active' : ''}`} onClick={() => toggle('tools', t.name)}>{t.name}</button>)}
@@ -685,6 +715,7 @@ function CreateAgentWizard({
                 <dt>工具</dt><dd>{form.tools.length ? form.tools.join('、') : '未绑定'}</dd>
                 <dt>知识库</dt><dd>{form.kb.length ? form.kb.map((id) => datasets.find((d) => d.id === id)?.name ?? id).join('、') : '未绑定'}</dd>
                 <dt>返回文档链接</dt><dd>{form.citationKb.length ? form.citationKb.map((id) => datasets.find((d) => d.id === id)?.name ?? id).join('、') : '关闭'}</dd>
+                <dt>回答模式</dt><dd>{form.answerMode === 'STRICT' ? '严格引用 · 无资料时拒答' : '混合回答'}</dd>
               </div>
               <div className="section-head"><h2>系统提示词</h2></div>
               <div className="prompt-box">{form.prompt}</div>
