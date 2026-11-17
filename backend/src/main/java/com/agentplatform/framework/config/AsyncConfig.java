@@ -52,4 +52,23 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * 产品埋点写入线程池。
+     *
+     * <p>核心 1、最大 2、队列 1000；事件写入是 after-commit 的旁路任务，
+     * 使用独立小池避免与工作流/摄取争抢资源，队列满时快速失败并由调用方降级。</p>
+     *
+     * @return 已初始化的线程池执行器
+     */
+    @Bean(name = "eventExecutor")
+    Executor eventExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(1000);
+        executor.setThreadNamePrefix("events-");
+        executor.initialize();
+        return executor;
+    }
 }
