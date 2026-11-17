@@ -19,9 +19,30 @@ import java.util.List;
  * @param time      展示用时间标签，格式 HH:mm:ss
  * @param topic     会话主题，默认取首条用户消息
  * @param trace     执行链路步骤，持久化为 JSON
+ * @param createdBy 会话创建人登录名；历史会话为 null
  */
 public record ChatSession(
         String id, String agentId, String agentName, String status, int turns,
-        int tools, int tokens, long ms, String time, String topic, List<TraceStep> trace
+        int tools, int tokens, long ms, String time, String topic, List<TraceStep> trace,
+        String createdBy
 ) {
+    /**
+     * 兼容旧调用方的构造器：不携带会话归属。
+     *
+     * @param id        会话 ID
+     * @param agentId   智能体 ID
+     * @param agentName 智能体名称
+     * @param status    会话状态
+     * @param turns     轮次
+     * @param tools     工具调用次数
+     * @param tokens    累计 token
+     * @param ms        耗时
+     * @param time      展示时间
+     * @param topic     主题
+     * @param trace     执行轨迹
+     */
+    public ChatSession(String id, String agentId, String agentName, String status, int turns,
+                       int tools, int tokens, long ms, String time, String topic, List<TraceStep> trace) {
+        this(id, agentId, agentName, status, turns, tools, tokens, ms, time, topic, trace, null);
+    }
 }

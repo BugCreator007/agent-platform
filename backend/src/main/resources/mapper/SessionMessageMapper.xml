@@ -9,4 +9,24 @@
   <delete id="deleteBySessionId">
     delete from session_messages where session_id = #{sessionId}
   </delete>
+
+  <!-- 助手消息总数：反馈率与无答案率的分母 -->
+  <select id="countAssistantSince" resultType="long">
+    select count(*) from session_messages m
+    join chat_sessions s on s.id = m.session_id
+    where m.role = 'assistant' and m.created_at &gt;= #{from}
+    <if test="agentId != null and agentId != ''">
+      and s.agent_id = #{agentId}
+    </if>
+  </select>
+
+  <!-- 拒答消息数：只统计严格模式产生的 REFUSAL -->
+  <select id="countRefusalSince" resultType="long">
+    select count(*) from session_messages m
+    join chat_sessions s on s.id = m.session_id
+    where m.role = 'assistant' and m.answer_type = 'REFUSAL' and m.created_at &gt;= #{from}
+    <if test="agentId != null and agentId != ''">
+      and s.agent_id = #{agentId}
+    </if>
+  </select>
 </mapper>
