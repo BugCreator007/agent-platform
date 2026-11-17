@@ -1,4 +1,4 @@
-package com.agentplatform.modules.knowledge.infrastructure.retrieval;
+package com.agentplatform.modules.knowledge.domain.service;
 
 /**
  * 向量/关键词检索的单条命中。

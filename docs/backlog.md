@@ -58,16 +58,19 @@
 - 验收：真实向量写入 Milvus；检索测试能看到语义命中；ES 中文召回正常
 
 ### P1-2 Rerank 真正生效
-- [ ] 实现 Rerank 客户端（bge-reranker-v2-m3 / Cohere / Qwen rerank）
-- [ ] 在检索服务中按 `dataset.rerank` 对候选重排后再截断
+- [x] 实现 Rerank 客户端（`RerankClient` + Cohere 兼容 HTTP 实现）
+- [x] 在检索服务中按 `dataset.rerank` 对候选重排后再截断（未配置时自动回退）
 - 现状：数据集有 `rerank` 字段，但检索服务完全没使用
 - 影响：配置项形同虚设，复杂问题的排序质量上不去
 - 验收：开启后 nDCG@10 有提升；关闭后行为可回退
 
+> 进展：Rerank 已实现并可配置（`RERANK_*`），候选/最终 TopK 已拆分，MMR 默认 λ=0.7；仍需用真实 Embedding 和业务金标集校准阈值。
+
 ### P1-3 检索参数校准与去重
 - [ ] 用黄金集校准相似度阈值（当前默认 0.8 偏高）
-- [ ] 拆分召回 `candidateK`（如 30）与最终 `finalK`（如 5）
-- [ ] 增加 MMR/近似重复过滤，处理重叠分块导致的重复命中
+- [x] 拆分召回 `candidateK`（`max(topK*5, 30)`）与最终 `finalK`
+- [x] 增加 MMR/近似重复过滤，处理重叠分块导致的重复命中
+- [x] 提供检索评估脚本 `scripts/retrieval_eval.py` 与金标示例
 - 现状：阈值固定 0.8；topK 同时用于召回和最终截断；无去重
 - 验收：黄金集 Recall@10 / nDCG@10 提升；无答案问题能正确拒答
 
@@ -114,6 +117,7 @@
 
 ### P1-11 文档版本与种子文件
 - [ ] 文档版本列表改为真实历史快照（当前由当前版本推导）
+- [ ] 删除文档时同步清理原始文件（当前只删数据库记录，已发现并清理 2 个测试残留）
 - [ ] 为种子文档补充物理文件，或从引用/下载中排除种子数据
 - 现状：种子文档只有元数据，引用里的下载链接对种子数据不可用
 - 验收：版本可回滚到真实内容；下载/引用对真实与种子数据都符合预期
@@ -150,9 +154,9 @@
 - 验收：首屏体积下降；两条 SSE 实现行为一致
 
 ### P2-4 分层修正
-- [ ] 将 `EmbeddingClient`、`VectorStore`、`KeywordIndex` 端口从 infrastructure 上移到 domain/application
-- 现状：application 直接 import infrastructure，依赖方向倒置
-- 验收：application 只依赖抽象端口；实现类留在 infrastructure
+- [x] 将 `EmbeddingClient`、`VectorStore`、`KeywordIndex`、`VectorMatch`、`VectorRecord` 迁移到 `knowledge/domain/service`
+- 现状：application 与 domain 已依赖抽象端口，HTTP/Milvus/ES 实现仍在 infrastructure
+- 验收：application 不再 import infrastructure（已通过 Modulith 测试）
 
 ### P2-5 文档与审计细节
 - [ ] 更新 `docs/implementation-status.md`（Flyway 已到 V10、前端体积等）

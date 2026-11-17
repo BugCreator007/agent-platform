@@ -1,5 +1,7 @@
 package com.agentplatform.modules.knowledge.infrastructure.embedding;
 
+import com.agentplatform.modules.knowledge.domain.service.EmbeddingClient;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 

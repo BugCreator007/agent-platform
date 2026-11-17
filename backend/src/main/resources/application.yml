@@ -85,6 +85,11 @@ app:
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
       api-key: ${DEEPSEEK_API_KEY:}
       model: ${DEEPSEEK_MODEL:deepseek-flash}
+  rerank:
+    enabled: ${RERANK_ENABLED:false}
+    base-url: ${RERANK_BASE_URL:}
+    api-key: ${RERANK_API_KEY:}
+    model: ${RERANK_MODEL:}
   security:
     secrets-key: ${SECRETS_KEY:agent-platform-local-secrets-change-me}
     bootstrap-admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:admin123}

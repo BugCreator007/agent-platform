@@ -1,4 +1,4 @@
-package com.agentplatform.modules.knowledge.infrastructure.embedding;
+package com.agentplatform.modules.knowledge.domain.service;
 
 import java.util.List;
 

@@ -1,5 +1,9 @@
 package com.agentplatform.modules.knowledge.infrastructure.retrieval;
 
+import com.agentplatform.modules.knowledge.domain.service.KeywordIndex;
+import com.agentplatform.modules.knowledge.domain.service.VectorMatch;
+import com.agentplatform.modules.knowledge.domain.service.VectorRecord;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

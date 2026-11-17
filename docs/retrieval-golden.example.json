@@ -1,0 +1,23 @@
+{
+  "dataset": "kb-refund",
+  "queries": [
+    {
+      "query": "已签收商品还能无理由退款吗",
+      "relevant": [
+        { "source": "七天无理由退款适用范围.md" }
+      ]
+    },
+    {
+      "query": "退款金额怎么计算，优惠券会退吗",
+      "relevant": [
+        { "source": "部分退款规则说明.pdf" }
+      ]
+    },
+    {
+      "query": "退款多久能到账",
+      "relevant": [
+        { "source": "已签收商品退款流程.md" }
+      ]
+    }
+  ]
+}

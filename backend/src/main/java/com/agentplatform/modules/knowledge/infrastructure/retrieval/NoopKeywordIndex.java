@@ -1,5 +1,9 @@
 package com.agentplatform.modules.knowledge.infrastructure.retrieval;
 
+import com.agentplatform.modules.knowledge.domain.service.KeywordIndex;
+import com.agentplatform.modules.knowledge.domain.service.VectorMatch;
+import com.agentplatform.modules.knowledge.domain.service.VectorRecord;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

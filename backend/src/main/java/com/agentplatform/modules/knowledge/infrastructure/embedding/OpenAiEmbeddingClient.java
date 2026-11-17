@@ -1,5 +1,7 @@
 package com.agentplatform.modules.knowledge.infrastructure.embedding;
 
+import com.agentplatform.modules.knowledge.domain.service.EmbeddingClient;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
