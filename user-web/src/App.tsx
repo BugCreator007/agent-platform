@@ -5,6 +5,7 @@ import {
   session,
   streamChat,
   type Citation,
+  type Feedback,
   type UserAgent,
   type UserInfo,
 } from './api'
@@ -19,7 +20,25 @@ type ChatMessage = {
   pending?: boolean
   tools?: ToolChip[]
   citations?: Citation[]
+  /** 后端持久化的助手消息 ID；用于提交反馈，用户消息为空 */
+  serverId?: string
+  /** 助手回答类型：正常回答或严格模式拒答 */
+  answerType?: 'ANSWER' | 'REFUSAL'
+  /** 是否低置信（知识库未命中） */
+  lowConfidence?: boolean
+  /** 当前用户对这条回答的反馈 */
+  feedback?: Feedback | null
 }
+
+/** 点踩原因选项：编码与后端 FeedbackReason 保持一致，文案只用于展示 */
+const DOWN_REASONS = [
+  { code: 'NOT_RELEVANT', label: '答非所问' },
+  { code: 'INCOMPLETE', label: '不完整' },
+  { code: 'OUTDATED', label: '信息过时' },
+  { code: 'WRONG_SOURCE', label: '依据不对' },
+  { code: 'NO_SOURCE', label: '没有依据' },
+  { code: 'OTHER', label: '其他' },
+]
 /** localStorage 中按用户与智能体保存的对话快照 */
 type StoredChat = { sessionId: string | null; messages: ChatMessage[] }
 
@@ -246,10 +265,23 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
   const [error, setError] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const historyLoaded = useRef(false)
   const initialSessionId = useRef(stored.sessionId)
+  // 反馈交互状态：当前展开原因面板的消息、原因选择、备注与提交状态
+  const [feedbackTarget, setFeedbackTarget] = useState<string | null>(null)
+  const [reasonDraft, setReasonDraft] = useState<string[]>([])
+  const [commentDraft, setCommentDraft] = useState('')
+  const [followUpDraft, setFollowUpDraft] = useState(false)
+  const [feedbackBusy, setFeedbackBusy] = useState(false)
+  const [feedbackError, setFeedbackError] = useState('')
 
-  // 若存在历史会话，仅首次进入时从后端拉取消息；失败则保留本地记录
+  // 进入聊天页上报一次 agent_opened，用于漏斗第一层；失败静默，不影响聊天
+  useEffect(() => {
+    void api.trackEvent({ name: 'agent_opened', agentId: agent.id }).catch(() => {})
+  }, [agent.id])
+
+  // 若存在历史会话，仅首次进入时从后端拉取消息与当前用户的反馈；失败则保留本地记录
   useEffect(() => {
     const sid = initialSessionId.current
     if (!sid || historyLoaded.current) return
@@ -257,12 +289,31 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     let cancelled = false
     api
       .messages(sid)
-      .then((list) => {
+      .then(async (list) => {
         if (cancelled) return
         const restored: ChatMessage[] = list
           .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .map((m) => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content, citations: m.citations }))
+          .map((m) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            citations: m.citations,
+            serverId: m.id,
+            answerType: m.answerType === 'REFUSAL' ? 'REFUSAL' : 'ANSWER',
+            lowConfidence: !!m.lowConfidence,
+          }))
         if (restored.length) setMessages(restored)
+        // 反馈状态按当前用户单独读取，避免把别人的点赞状态带出来
+        try {
+          const feedbacks = await api.sessionFeedback(sid)
+          if (cancelled) return
+          setMessages((prev) => prev.map((message) => {
+            const feedback = feedbacks.find((f) => f.messageId === message.serverId)
+            return feedback ? { ...message, feedback } : message
+          }))
+        } catch {
+          /* 反馈状态读取失败不影响历史消息展示 */
+        }
       })
       .catch(() => {
         /* 保留本地记录 */
@@ -294,6 +345,123 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     setMessages((prev) => prev.map((message) => (message.id === id ? update(message) : message)))
   }
 
+  /** 将后端返回的反馈写回对应消息，null 表示撤销 */
+  const applyFeedback = (serverId: string, feedback: Feedback | null) => {
+    setMessages((prev) => prev.map((message) => (message.serverId === serverId ? { ...message, feedback } : message)))
+  }
+
+  /** 关闭原因面板并清空草稿 */
+  const closeFeedbackPanel = () => {
+    setFeedbackTarget(null)
+    setReasonDraft([])
+    setCommentDraft('')
+    setFollowUpDraft(false)
+    setFeedbackError('')
+  }
+
+  /**
+   * 打开点踩原因面板。
+   * @param message  助手消息
+   * @param followUp 是否从“留下问题”进入（固定带 NO_SOURCE 原因）
+   */
+  const openDownPanel = (message: ChatMessage, followUp = false) => {
+    if (!message.serverId) return
+    const existing = message.feedback?.rating === 'DOWN' ? message.feedback : null
+    setFeedbackTarget(message.serverId)
+    setReasonDraft(existing ? existing.reasons.map((r) => r.code) : followUp ? ['NO_SOURCE'] : [])
+    setCommentDraft(existing?.comment ?? '')
+    setFollowUpDraft(followUp || !!existing?.followUpRequested)
+    setFeedbackError('')
+  }
+
+  /** 提交反馈；成功后更新消息上的反馈状态 */
+  const doSubmitFeedback = async (
+    message: ChatMessage,
+    rating: 'UP' | 'DOWN',
+    reasons: string[],
+    comment: string,
+    followUp: boolean,
+  ) => {
+    if (!message.serverId) return
+    setFeedbackBusy(true)
+    setFeedbackError('')
+    try {
+      const feedback = await api.submitFeedback(message.serverId, {
+        rating,
+        reasons,
+        comment: comment.trim() || undefined,
+        followUpRequested: followUp,
+      })
+      applyFeedback(message.serverId, feedback)
+      closeFeedbackPanel()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setFeedbackError(message)
+      // 点赞失败时原因面板可能未展开，同时用全局提示兜底
+      setError(message)
+    } finally {
+      setFeedbackBusy(false)
+    }
+  }
+
+  /** 撤销当前用户对这条回答的反馈 */
+  const doRemoveFeedback = async (message: ChatMessage) => {
+    if (!message.serverId) return
+    setFeedbackBusy(true)
+    setFeedbackError('')
+    try {
+      await api.deleteFeedback(message.serverId)
+      applyFeedback(message.serverId, null)
+      closeFeedbackPanel()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setFeedbackError(message)
+      setError(message)
+    } finally {
+      setFeedbackBusy(false)
+    }
+  }
+
+  /** 点赞：已点赞则撤销，否则立即提交 */
+  const toggleUp = (message: ChatMessage) => {
+    if (message.feedback?.rating === 'UP') {
+      void doRemoveFeedback(message)
+    } else {
+      void doSubmitFeedback(message, 'UP', [], '', false)
+    }
+  }
+
+  /** 复制回答；成功后上报采纳事件，失败时提示手动选择文本 */
+  const copyAnswer = async (message: ChatMessage) => {
+    if (!message.content) return
+    try {
+      await navigator.clipboard.writeText(message.content)
+      if (message.serverId) {
+        void api.trackEvent({
+          name: 'answer_copied',
+          sessionId: sessionId ?? undefined,
+          messageId: message.serverId,
+          agentId: agent.id,
+          properties: { length: message.content.length },
+        }).catch(() => {})
+      }
+    } catch {
+      setError('复制失败，请手动选择文本')
+    }
+  }
+
+  /** 引用打开/下载成功后上报 citation_downloaded，用于采纳口径 */
+  const trackCitation = (citation: Citation, message: ChatMessage) => {
+    if (!message.serverId) return
+    void api.trackEvent({
+      name: 'citation_downloaded',
+      sessionId: sessionId ?? undefined,
+      messageId: message.serverId,
+      agentId: agent.id,
+      properties: { documentId: citation.documentId, sourceType: citation.sourceType },
+    }).catch(() => {})
+  }
+
   /**
    * 发送消息并通过 SSE 接收回复。
    * 先乐观插入用户消息与空的助手消息；收到首个 delta 前显示打字动画，
@@ -304,6 +472,8 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     if (!text || streaming) return
     setError('')
     let received = false
+    // 拒答场景没有 delta，用 done 事件判断本轮已正常结束，避免误报“没有收到回复”
+    let settledByDone = false
     const assistantId = `a_${uid()}`
     try {
       setInput('')
@@ -347,9 +517,22 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
               return { ...m, tools }
             }),
           onDone: (done) => {
-            // 后端在 done 事件中返回本轮知识库引用；没有引用时保持空数组。
+            // 后端在 done 事件中返回引用、消息 ID、回答类型与置信标记
+            settledByDone = true
             const citations = Array.isArray(done.citations) ? done.citations as Citation[] : []
-            updateAssistant(assistantId, (m) => ({ ...m, citations }))
+            const serverId = typeof done.assistantMessageId === 'string' ? done.assistantMessageId : undefined
+            const answerType = done.answerType === 'REFUSAL' ? 'REFUSAL' : 'ANSWER'
+            const lowConfidence = done.lowConfidence === true
+            const refusalContent = answerType === 'REFUSAL' && typeof done.content === 'string' ? done.content : undefined
+            updateAssistant(assistantId, (m) => ({
+              ...m,
+              citations,
+              serverId,
+              answerType,
+              lowConfidence,
+              // 拒答没有流式增量，用 done 中的固定文案填充气泡
+              content: refusalContent ?? m.content,
+            }))
           },
           onError: (message) => {
             setError(message)
@@ -358,8 +541,8 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
         },
         controller.signal,
       )
-      // 流结束但未收到任何增量文本，提示重试
-      if (!received) setError('没有收到回复，请稍后重试')
+      // 流结束但既没有增量文本、也没有收到 done，才提示重试
+      if (!received && !settledByDone) setError('没有收到回复，请稍后重试')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       // 主动停止不视为错误
@@ -387,6 +570,8 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
     setSessionId(null)
     setMessages([])
     setError('')
+    closeFeedbackPanel()
+    setFeedbackBusy(false)
   }
 
   return (
@@ -419,7 +604,22 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
           <article key={message.id} className={`bubble-row ${message.role}`}>
             {message.role === 'assistant' && <span className="mini-avatar">{agent.name.slice(0, 1)}</span>}
             <div className={`bubble ${message.role}`}>
-              {message.content && <p>{message.content}</p>}
+              {message.role === 'assistant' && message.lowConfidence && !message.pending && (
+                <div className="low-confidence">未检索到相关资料，回答可能不准确</div>
+              )}
+              {message.role === 'assistant' && message.answerType === 'REFUSAL' && !message.pending ? (
+                <div className="refusal-card">
+                  <strong>暂时没有找到答案</strong>
+                  <p>{message.content}</p>
+                  <div className="refusal-actions">
+                    <button className="refusal-primary" onClick={() => openDownPanel(message, true)}>留下问题</button>
+                    <button className="refusal-ghost" onClick={() => inputRef.current?.focus()}>换个问法</button>
+                    {message.feedback?.followUpRequested && <span className="refusal-recorded">已记录</span>}
+                  </div>
+                </div>
+              ) : (
+                message.content && <p>{message.content}</p>
+              )}
               {!!message.tools?.length && (
                 <div className="tool-list">
                   {message.tools.map((tool, index) => (
@@ -436,15 +636,85 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
                   <div className="citations-title">参考资料</div>
                   {message.citations.map((citation) => (
                     citation.sourceType === 'WEB' ? (
-                      <a key={citation.documentId} className="citation-link" href={citation.url} target="_blank" rel="noreferrer">
+                      <a key={citation.documentId} className="citation-link" href={citation.url} target="_blank" rel="noreferrer" onClick={() => trackCitation(citation, message)}>
                         {citation.name}
                       </a>
                     ) : (
-                      <button key={citation.documentId} className="citation-link" onClick={() => downloadCitation(citation).catch((e: Error) => setError(e.message))}>
+                      <button key={citation.documentId} className="citation-link" onClick={() => downloadCitation(citation).then(() => trackCitation(citation, message)).catch((e: Error) => setError(e.message))}>
                         {citation.name}
                       </button>
                     )
                   ))}
+                </div>
+              )}
+              {message.role === 'assistant' && !message.pending && message.serverId && message.answerType !== 'REFUSAL' && (
+                <div className="feedback-bar">
+                  <button
+                    className={`fb-btn ${message.feedback?.rating === 'UP' ? 'active' : ''}`}
+                    onClick={() => toggleUp(message)}
+                    disabled={feedbackBusy}
+                    aria-label="这条回答有用"
+                  >👍 有用</button>
+                  <button
+                    className={`fb-btn ${message.feedback?.rating === 'DOWN' ? 'active' : ''}`}
+                    onClick={() => openDownPanel(message)}
+                    disabled={feedbackBusy}
+                    aria-label="这条回答没用"
+                  >👎 没用</button>
+                  {message.feedback?.rating === 'DOWN' && <span className="fb-note">已反馈</span>}
+                  <button
+                    className="fb-btn"
+                    onClick={() => void copyAnswer(message)}
+                    disabled={feedbackBusy}
+                    aria-label="复制这条回答"
+                  >复制</button>
+                </div>
+              )}
+              {feedbackTarget === message.serverId && (
+                <div className="feedback-panel">
+                  <div className="feedback-panel-title">
+                    {message.answerType === 'REFUSAL' ? '把问题留下，知识运营会补充资料' : '哪里没帮到你？'}
+                  </div>
+                  {message.answerType !== 'REFUSAL' && (
+                    <div className="reason-chips">
+                      {DOWN_REASONS.map((reason) => (
+                        <button
+                          key={reason.code}
+                          className={`reason-chip ${reasonDraft.includes(reason.code) ? 'active' : ''}`}
+                          onClick={() => setReasonDraft((prev) => prev.includes(reason.code)
+                            ? prev.filter((code) => code !== reason.code)
+                            : prev.length >= 2 ? prev : [...prev, reason.code])}
+                        >{reason.label}</button>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    className="fb-comment"
+                    rows={2}
+                    maxLength={200}
+                    value={commentDraft}
+                    onChange={(e) => setCommentDraft(e.target.value)}
+                    placeholder={message.answerType === 'REFUSAL' ? '补充说明（选填）' : '补充说明（选填，200 字以内）'}
+                  />
+                  {feedbackError && <div className="fb-error">{feedbackError}</div>}
+                  <div className="fb-actions">
+                    {message.feedback?.rating === 'DOWN' && (
+                      <button className="fb-link danger" onClick={() => doRemoveFeedback(message)} disabled={feedbackBusy}>撤销反馈</button>
+                    )}
+                    <span className="spacer" />
+                    <button className="fb-link" onClick={closeFeedbackPanel} disabled={feedbackBusy}>取消</button>
+                    <button
+                      className="fb-submit"
+                      disabled={feedbackBusy || (message.answerType !== 'REFUSAL' && reasonDraft.length === 0)}
+                      onClick={() => doSubmitFeedback(
+                        message,
+                        'DOWN',
+                        message.answerType === 'REFUSAL' ? ['NO_SOURCE'] : reasonDraft,
+                        commentDraft,
+                        followUpDraft || message.answerType === 'REFUSAL',
+                      )}
+                    >{feedbackBusy ? '提交中…' : '提交'}</button>
+                  </div>
                 </div>
               )}
               {message.pending && !message.content && (
@@ -460,6 +730,7 @@ function Chat({ user, agent, onBack }: { user: UserInfo; agent: UserAgent; onBac
       <footer className="composer">
         <div className="composer-box">
           <textarea
+            ref={inputRef}
             value={input}
             placeholder={`向 ${agent.name} 提问…`}
             rows={1}
