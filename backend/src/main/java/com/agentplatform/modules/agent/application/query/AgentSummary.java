@@ -30,12 +30,14 @@ import java.util.List;
  * @param tools      工具编码列表
  * @param kb         知识库编码列表
  * @param citationKb 需要返回文档引用的知识库编码列表
+ * @param answerMode 回答模式：HYBRID / STRICT
  */
 public record AgentSummary(
         String id, String name, String code, String status, String version,
         String model, String providerId, String modelId, String owner, String team, String release,
         long sessions, double success, String p95, double cost, String updated,
-        String prompt, List<String> tools, List<String> kb, List<String> citationKb
+        String prompt, List<String> tools, List<String> kb, List<String> citationKb,
+        String answerMode
 ) {
     /**
      * 将领域聚合投影为查询视图。
@@ -50,7 +52,7 @@ public record AgentSummary(
                 agent.version(), agent.model(), agent.providerId(), agent.modelId(),
                 agent.owner(), agent.team(), agent.release(),
                 agent.sessions(), agent.success(), agent.p95(), agent.cost(), agent.updated(),
-                agent.prompt(), agent.tools(), agent.kb(), agent.citationKb()
+                agent.prompt(), agent.tools(), agent.kb(), agent.citationKb(), agent.answerMode()
         );
     }
 }

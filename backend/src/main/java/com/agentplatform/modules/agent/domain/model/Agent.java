@@ -40,6 +40,8 @@ public class Agent {
     private List<String> kb;
     /** 需要返回文档引用的知识库编码列表（必须属于 kb）。 */
     private List<String> citationKb;
+    /** 回答模式：HYBRID 混合回答（现状）/ STRICT 严格引用；默认 HYBRID。 */
+    private String answerMode;
     /** 累计会话数（运营指标，由运行时统计写入）。 */
     private long sessions;
     /** 成功率百分比（运营指标，98.7 表示 98.7%）。 */
@@ -67,6 +69,15 @@ public class Agent {
                   String release, String prompt, List<String> tools, List<String> kb,
                   List<String> citationKb, long sessions, double success, String p95, double cost,
                   String updated) {
+        this(id, code, name, status, version, model, providerId, modelId, owner, team, release,
+                prompt, tools, kb, citationKb, "HYBRID", sessions, success, p95, cost, updated);
+    }
+
+    private Agent(String id, String code, String name, AgentStatus status, String version,
+                  String model, String providerId, String modelId, String owner, String team,
+                  String release, String prompt, List<String> tools, List<String> kb,
+                  List<String> citationKb, String answerMode, long sessions, double success,
+                  String p95, double cost, String updated) {
         this.id = id;
         this.code = code;
         this.name = name;
@@ -84,6 +95,8 @@ public class Agent {
         List<String> configuredCitations = citationKb == null ? List.of() : citationKb;
         this.citationKb = List.copyOf(configuredCitations.stream()
                 .filter(citation -> this.kb.contains(citation)).distinct().toList());
+        // 兼容历史数据：非法或空值统一回退为 HYBRID，避免运行时出现未知模式
+        this.answerMode = "STRICT".equalsIgnoreCase(answerMode) ? "STRICT" : "HYBRID";
         this.sessions = sessions;
         this.success = success;
         this.p95 = p95;
@@ -187,8 +200,23 @@ public class Agent {
                                 String owner, String team, String release, String prompt,
                                 List<String> tools, List<String> kb, List<String> citationKb,
                                 long sessions, double success, String p95, double cost, String updated) {
+        return restore(id, code, name, status, version, model, providerId, modelId, owner, team,
+                release, prompt, tools, kb, citationKb, "HYBRID", sessions, success, p95, cost, updated);
+    }
+
+    /**
+     * 从持久化数据完整恢复聚合（含回答模式）。
+     *
+     * @param answerMode 回答模式：HYBRID / STRICT；为空或非法时回退 HYBRID
+     */
+    public static Agent restore(String id, String code, String name, AgentStatus status,
+                                String version, String model, String providerId, String modelId,
+                                String owner, String team, String release, String prompt,
+                                List<String> tools, List<String> kb, List<String> citationKb,
+                                String answerMode, long sessions, double success, String p95,
+                                double cost, String updated) {
         return new Agent(id, code, name, status, version, model, providerId, modelId, owner, team,
-                release, prompt, tools, kb, citationKb, sessions, success, p95, cost, updated);
+                release, prompt, tools, kb, citationKb, answerMode, sessions, success, p95, cost, updated);
     }
 
     /**
@@ -202,7 +230,7 @@ public class Agent {
     public static Agent draft(String id, String code, String name) {
         return new Agent(id, code, name, AgentStatus.DRAFT, "v1", "未绑定模型",
                 null, null, "顾先路", "客服平台", "草稿", "你是企业的智能助手。",
-                List.of(), List.of(), List.of(), 0, 0, "—", 0, "刚刚");
+                List.of(), List.of(), List.of(), "HYBRID", 0, 0, "—", 0, "刚刚");
     }
 
     /**
@@ -309,6 +337,31 @@ public class Agent {
     public void update(String name, String model, String providerId, String modelId,
                        String owner, String team, String prompt, List<String> tools,
                        List<String> kb, List<String> citationKb) {
+        update(name, model, providerId, modelId, owner, team, prompt, tools, kb, citationKb, null);
+    }
+
+    /**
+     * 局部更新智能体配置（含回答模式）。
+     * <p>回答模式只接受 HYBRID / STRICT；严格引用模式必须绑定至少一个知识库，
+     * 否则在修改任何字段前直接拒绝，避免产生无法运行的配置。</p>
+     *
+     * @param answerMode 回答模式，null/空白表示不修改
+     */
+    public void update(String name, String model, String providerId, String modelId,
+                       String owner, String team, String prompt, List<String> tools,
+                       List<String> kb, List<String> citationKb, String answerMode) {
+        String nextMode = this.answerMode;
+        if (answerMode != null && !answerMode.isBlank()) {
+            String normalized = answerMode.trim().toUpperCase(java.util.Locale.ROOT);
+            if (!"HYBRID".equals(normalized) && !"STRICT".equals(normalized)) {
+                throw new IllegalArgumentException("回答模式仅支持 HYBRID 或 STRICT");
+            }
+            nextMode = normalized;
+        }
+        List<String> nextKb = kb == null ? this.kb : List.copyOf(kb);
+        if ("STRICT".equals(nextMode) && nextKb.isEmpty()) {
+            throw new IllegalArgumentException("严格引用模式需要绑定至少一个知识库");
+        }
         if (name != null && !name.isBlank()) this.name = name;
         if (model != null && !model.isBlank()) this.model = model;
         if (providerId != null) this.providerId = providerId;
@@ -318,6 +371,7 @@ public class Agent {
         if (prompt != null) this.prompt = prompt;
         if (tools != null) this.tools = List.copyOf(tools);
         if (kb != null) this.kb = List.copyOf(kb);
+        this.answerMode = nextMode;
         // 引用开关必须始终是 kb 的子集，避免知识库解绑后残留引用配置。
         List<String> nextCitations = citationKb == null ? this.citationKb : citationKb;
         this.citationKb = List.copyOf(nextCitations.stream()
@@ -383,6 +437,8 @@ public class Agent {
     public List<String> kb() { return kb; }
     /** @return 需要返回文档引用的知识库编码列表（不可变） */
     public List<String> citationKb() { return citationKb; }
+    /** @return 回答模式：HYBRID / STRICT */
+    public String answerMode() { return answerMode; }
     /** @return 累计会话数 */
     public long sessions() { return sessions; }
     /** @return 成功率百分比 */
